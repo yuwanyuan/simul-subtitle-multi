@@ -84,14 +84,28 @@
 ./setup.sh
 
 # 2. 构建（环境：JDK 17 + Android SDK platforms;android-35、build-tools;34.0.0；无需 NDK）
-./gradlew -q :app:assembleRelease       # 产物 app/build/outputs/apk/release/，模型不打压缩包直接随 APK 分发
+./gradlew -q :app:assembleRelease       # 产物 app/build/outputs/apk/release/，APK 只带 VAD，识别模型在 App 内下载
 ./gradlew :desktop:run                  # 桌面端源码直跑（macOS 需先 tools/mac-capture/build.sh）
 
 # 3. 单元测试——任何对 :core 的改动，这是最低限度的验证
 ./gradlew :core:test :app:testDebugUnitTest
+
+# 4. CI：推送 my-mod 自动构建 release APK（.github/workflows/android.yml），产物在 run 页 Artifacts
+gh run list -R yuwanyuan/simul-subtitle-multi --workflow android.yml
+gh run download -R yuwanyuan/simul-subtitle-multi <run-id> -n SimulSub-android-arm64 -D /tmp/ci-apk
+# 发布（应用内更新的数据源，见下文"已知坑"）：
+gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitle-multi
 ```
 
 版本号引用链：`versionName`/`versionCode` 定义在 `app/build.gradle.kts`，`:desktop` 用正则从该文件读取。**不要随手改版本号**——上游用 `Version X.Y` 格式的独立提交管理版本，本地如果也去动它会成为每次同步的冲突源；本地构建想区分时，用 tag 或分支名，不改 `versionCode`。
+
+## 本机实测（Windows + Android 模拟器）
+
+- **arm64-only 的 APK 装到本机 x86_64 模拟器上跑不了原生库**：onnxruntime 会在 `dlopen` 静态初始化阶段就 SIGSEGV（崩在 linker64 的 call_constructors，还没进应用代码）——这是模拟器 ARM 转译的缺陷，不是应用 bug，别去追。要在模拟器上验证 sherpa-onnx 路径：临时把 `app/build.gradle.kts` 的 `abiFilters` 改成 `"x86_64"`（AAR 自带 x86_64 原生库）构建 debug 包，测完 `git checkout app/build.gradle.kts` 恢复，**这个改动绝不提交**。
+- **Git Bash 会把 adb 参数里的 `/sdcard/...` 悄悄转成 Windows 路径**（曾把文件"成功"推到 `C:\Program Files\Git\sdcard\...` 本机磁盘）。推设备文件一律 `MSYS_NO_PATHCONV=1 adb push ...`。反过来 `adb push` 可以直接写 `/sdcard/Android/data/<包名>/files/asr-models/<id>/`——文件尺寸与 `AsrModels.kt` 目录锚点一致就会被认成"已下载"，不必走 UI 下载几百 MB。
+- **模拟器上快速配 BYOK/选模型**（debug 构建）：`adb shell am force-stop <包名>` 后 `adb shell "run-as <包名> sed -i '...' /data/data/<包名>/shared_prefs/jpsub.xml"`。byokUrl/byokModel/byokUserAgent 是明文；key 可空（`byokReady` 不要求 key），密钥字段是用 Android Keystore 封的、别手写。改完重启应用生效。
+- **uiautomator dump 在本 App 上会失败**（首页 ticker 每 800ms 重绘，永远到不了 idle）：用截图 + 坐标换算操作，截图 PNG 就是设备分辨率（1080×2340）。模拟器内存只有 2GB，加载 297MB 的多语种模型属于极限操作。
+
 
 ## fork 模式的两个已知坑（已于 2026-10-18 处置，此节记录现状）
 
