@@ -13,7 +13,9 @@
 | `origin` | `yuwanyuan/simul-subtitle-multi` | 唯一可推送远端 |
 | `upstream` | `KorenKrita/simul-subtitle` | 只读。本账号无该仓库写权限（push 实测 403），任何改动都不回传上游 |
 
-仓库本地配置已固化两项：`remote.pushDefault=origin`（裸 `git push` 永远指向 fork）、`rerere.enabled=true`（复用已解决过的冲突）。
+防误推的三层保险（2026-10-17 起）：`remote.pushDefault=origin`（裸 `git push` 永远指向 fork）+ `remote.upstream.pushurl=no-push.invalid`（**显式** `git push upstream …` 在本机直接失败，fetch/pull 不受影响）+ 上游不授予本账号写权限（真到了 GitHub 也会 403）。改本地配置时别删这两项 config。
+
+仓库本地配置已固化：`remote.pushDefault=origin`（裸 `git push` 永远指向 fork）、`remote.upstream.pushurl=no-push.invalid`（显式推上游在本机直接失败）、`rerere.enabled=true`（复用已解决过的冲突）。上游只能 `fetch`/`merge`，永远不被 push。
 
 ## 版本锚点
 
