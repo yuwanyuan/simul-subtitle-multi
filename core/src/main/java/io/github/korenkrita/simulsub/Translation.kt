@@ -112,14 +112,18 @@ data class Scene(val id: String, val label: String, val background: String?, val
  * the captions: any of them ([Target.PRESETS]) or a typed name.
  */
 enum class Lang(val code: String, val zh: String, val en: String) {
-    ZH("zh", "中文", "Chinese"), EN("en", "英语", "English"), JA("ja", "日语", "Japanese"), KO("ko", "韩语", "Korean");
+    ZH("zh", "中文", "Chinese"), EN("en", "英语", "English"), JA("ja", "日语", "Japanese"), KO("ko", "韩语", "Korean"),
+    DE("de", "德语", "German"), RU("ru", "俄语", "Russian"), TH("th", "泰语", "Thai"), VI("vi", "越南语", "Vietnamese"),
+    ID("id", "印尼语", "Indonesian"), AR("ar", "阿拉伯语", "Arabic");
 
     companion object {
         /**
-         * What ReazonSpeech (ja-en, one model, no language setting) is used for. The choice only tells the translator
-         * and Jev the language; null = auto: Japanese or English, the translator works it out.
+         * What the chosen model can hear. Japanese and English first (every model covers them; the older built-in
+         * ReazonSpeech had only these two), then what one of the offered models adds (multilingual: zh ru th vi id
+         * ar, Kroko: de). The choice only tells the translator and Jev the language; null = auto: the translator
+         * works it out.
          */
-        val SOURCES: List<Lang?> = listOf(JA, EN, null)
+        val SOURCES: List<Lang?> = listOf(JA, EN, ZH, DE, RU, TH, VI, ID, AR, null)
         fun of(code: String?): Lang? = entries.firstOrNull { it.code == code }
     }
 }

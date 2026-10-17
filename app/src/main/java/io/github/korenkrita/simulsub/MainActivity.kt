@@ -209,7 +209,7 @@ class MainActivity : Activity() {
         val sources = Lang.SOURCES
         fun weighted(v: View) = v.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
         // a running session takes a new language from the next sentence
-        box.addView(weighted(dropdown(sources.map { it?.zh ?: "不确定（日语或英语）" }, sources.indexOf(prefs.sourceLang).coerceAtLeast(0), true, wrap = true) {
+        box.addView(weighted(dropdown(sources.map { it?.zh ?: "不确定（让翻译自己判断）" }, sources.indexOf(prefs.sourceLang).coerceAtLeast(0), true, wrap = true) {
             if (prefs.sourceLang != sources[it]) { prefs.sourceLang = sources[it]; renderTranslate() }
         }).apply { contentDescription = "视频里说的是" })
         box.addView(TextView(this).apply {
@@ -1556,7 +1556,8 @@ class MainActivity : Activity() {
             val ready = AsrModels.ready(this, def)
             val used = sel == def.id && ready
             val actions = mutableListOf<Pair<String, (() -> Unit)?>>()
-            if (used) actions += "使用中" to null else actions += "使用" to {
+            // only a ready model can be used (and deleted): the picker of an undownloaded one is 下载并使用
+            if (ready) actions += if (used) "使用中" to null else "使用" to {
                 AsrModels.select(this, def.id); onModelsChanged()
             }
             if (ready) actions += "删除" to {
@@ -1624,8 +1625,8 @@ class MainActivity : Activity() {
     /** the two progress numbers of a row, human-sized */
     private fun mb(done: Long, of: Long) = "${mb(done)} / ${mb(of)}"
     private fun mb(b: Long) = when {
-        b >= 1048576L * 10 -> "${b / 1048576L} MB"
-        b >= 1048576L -> "%.1f MB".format(b / 1048576.0)
+        b >= 1_000_000L * 10 -> "${b / 1_000_000L} MB"
+        b >= 1_000_000L -> "%.1f MB".format(java.util.Locale.US, b / 1_000_000.0)
         else -> "${b / 1024L} KB"
     }
 

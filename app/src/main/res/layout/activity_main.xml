@@ -54,7 +54,7 @@
             <TextView
                 style="@style/RowSub"
                 android:paddingHorizontal="4dp"
-                android:text="把视频、直播里的日语和英语，实时变成字幕" />
+                android:text="把视频、直播里说的话，实时变成字幕" />
 
             <!-- status, languages, the one action and the service it translates with -->
             <com.google.android.material.card.MaterialCardView
