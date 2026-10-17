@@ -30,7 +30,11 @@ class StreamingSherpaAsr(encoder: String, decoder: String, joiner: String, token
                 transducer = OnlineTransducerModelConfig(encoder = encoder, decoder = decoder, joiner = joiner),
                 tokens = tokens,
                 numThreads = threads,
-                modelType = "zipformer",
+                // Must stay empty: sherpa-onnx 1.13 dispatches on this string and "zipformer" forces the 1st-gen
+                // runner, which _Exit()s the process for the 2nd-gen models (metadata key mismatch, no Java
+                // exception — the empty string reads model_type from the ONNX metadata instead, see the tombstone
+                // of the "caption overlay vanishes" report).
+                modelType = "",
             ),
             // one whole (padded) utterance per call: no endpoint rules, nothing to end in the middle
             enableEndpoint = false,
@@ -79,7 +83,10 @@ class FileTransducerAsr(encoder: String, decoder: String, joiner: String, tokens
                 ),
                 tokens = tokens,
                 numThreads = threads,
-                modelType = "transducer",
+                // empty = auto-detect from the ONNX metadata, same reason as [StreamingSherpaAsr] ("transducer" is
+                // not an identity sherpa-onnx knows either — ReazonSpeech only ran because its own metadata matched
+                // what the dispatcher guessed; a built-for-a-different-generation file killed the process)
+                modelType = "",
             ),
             decodingMethod = "greedy_search",
         ),

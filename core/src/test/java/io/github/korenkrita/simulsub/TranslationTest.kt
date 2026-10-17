@@ -145,8 +145,8 @@ class TranslationTest {
     fun targetsAreStoredAsAPresetCodeOrATypedName() {
         assertEquals(Target.of(Lang.KO), Target.parse("ko"))
         assertEquals("ko", Target.of(Lang.KO).stored)
-        // the list offers only a few; a language that is not one of them (an old "fr" too) reads as nothing
-        assertEquals(listOf(Lang.ZH, Lang.EN, Lang.JA, Lang.KO), Target.PRESETS.map { it.lang })
+        // the presets are the language enum; a language that is not one of them (an old "fr" too) reads as nothing
+        assertEquals(Lang.entries, Target.PRESETS.map { it.lang })
         assertNull(Target.parse("fr"))
         val t = Target.custom("粤语")!!
         assertEquals(t, Target.parse(t.stored))

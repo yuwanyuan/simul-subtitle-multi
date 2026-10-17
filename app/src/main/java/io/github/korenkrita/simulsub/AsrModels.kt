@@ -50,13 +50,14 @@ object AsrModels {
 
     // -- the models the page offers. Sizes and SHA-256 taken from the repos' own metadata (ModelScope's file API for
     //    the first, setup.sh's checked list for the second) when written; a download is verified against them, or by
-    //    size where no hash is published.
-    private const val MS = "https://www.modelscope.cn/models/admin2558/lingualive-streaming-zipformer-multilingual-int8/resolve/master/"
+    //    size where no hash is published. All URLs are pinned to a revision, so an upstream re-upload cannot silent-
+    //    ly break new downloads (the checks would just fail) without this reading as a broken app.
+    private const val MS = "https://www.modelscope.cn/models/admin2558/lingualive-streaming-zipformer-multilingual-int8/resolve/c1faa2cad48d7a501047d84d87bfc0a2b66612e6/"
     /** huggingface.co serves the same files; the mirror first, plain Hugging Face does not answer from this region */
     private const val REAZON = "https://hf-mirror.com/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/"
     private val KROKO = listOf(
-        "https://hf-mirror.com/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/main/",
-        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/main/",
+        "https://hf-mirror.com/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/",
+        "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/",
     )
 
     val CATALOG = listOf(
@@ -150,8 +151,11 @@ object AsrModels {
 
     // -- where the files live & whether they are there -------------------------------------------------------------------
 
-    /** app-specific external storage: no permission needed, gone on uninstall */
-    fun root(ctx: Context): File = File(ctx.getExternalFilesDir(null), "asr-models").apply { mkdirs() }
+    /** app-specific external storage: no permission needed, gone on uninstall; internal files when that is gone */
+    fun root(ctx: Context): File = File(externalOrInternal(ctx), "asr-models").apply { mkdirs() }
+
+    private fun externalOrInternal(ctx: Context): File =
+        ctx.getExternalFilesDir(null) ?: ctx.filesDir
 
     fun dir(ctx: Context, id: String): File = File(root(ctx), id)
 
@@ -168,9 +172,8 @@ object AsrModels {
         return c.files.values.all { name -> File(dir, name).isFile && File(dir, name).length() > 0 }
     }
 
-    /** true = the stored selection points at a usable set of files ([BUILTIN] trivially, [CUSTOM] included) */
+    /** true = the stored selection points at a usable set of files (the built-in id now is a download like the rest) */
     fun selectionUsable(ctx: Context): Boolean = when (val id = selected(ctx)) {
-        BUILTIN -> true
         CUSTOM -> customReady(ctx)
         else -> def(id)?.let { ready(ctx, it) } == true
     }
@@ -225,6 +228,8 @@ object AsrModels {
         }
         val dir = dir(ctx, d.id)
         fun p(f: AsrModelDef.FileDef) = File(dir, f.local).absolutePath
+        // what this session will listen with (the trouble-shooting line behind "用了哪个模型" reports)
+        log(ctx, "ASR 模型：${d.label}（${if (d.streaming) "流式" else "非流式"}）· 目录 ${dir}")
         return if (d.streaming) StreamingSherpaAsr(p(d.files[0]), p(d.files[1]), p(d.files[2]), p(d.files[3]), threads)
         else FileTransducerAsr(p(d.files[0]), p(d.files[1]), p(d.files[2]), p(d.files[3]), threads)
     }
@@ -263,10 +268,16 @@ object AsrModels {
      */
     fun startDownload(ctx0: Context, def: AsrModelDef, after: () -> Unit) {
         val ctx = ctx0.applicationContext
-        if (downloading != null || ready(ctx, def)) return
+        if (downloading != null) {
+            // the confirm dialog can outlive the state it was opened on (the every-800ms page rebuild): say so
+            lastError = "有另一个下载正在进行，等它完成再试。"
+            post(after)
+            return
+        }
+        if (ready(ctx, def)) return
         val dir = dir(ctx, def.id); dir.mkdirs()
         val need = def.files.filter { !existing(ctx, def, it) }.sumOf { it.bytes }
-        val free = StatFs(ctx.getExternalFilesDir(null)!!.path).availableBytes
+        val free = StatFs(externalOrInternal(ctx).path).availableBytes
         if (need + SPACE_MARGIN > free) {
             lastError = "空间不够：还需要 ${mb(need + SPACE_MARGIN - free)}，模型本身要 ${mb(need)}。删掉一些东西或换个模型再试。"
             post(after)
@@ -408,6 +419,9 @@ object AsrModels {
         if (missing.isNotEmpty())
             return "没认出全部四个文件，缺：${missing.joinToString("、") { roleName(it) }}。" +
                 "请选择模型原本的四个文件（encoder*.onnx、decoder*.onnx、joiner*.onnx、tokens.txt）。"
+        val duplicated = ROLES.filter { role -> items.count { roleOf(it.second) == role } > 1 }
+        if (duplicated.isNotEmpty())
+            return "选重了：${duplicated.joinToString("、") { roleName(it) }} 各选一个就够，请重新选四个正确的文件。"
         Thread({
             try {
                 val dir = dir(ctx, CUSTOM)
@@ -421,6 +435,17 @@ object AsrModels {
                 }
                 saveCustom(ctx, CustomModel(if (streaming) KIND_STREAMING else KIND_OFFLINE, names))
                 select(ctx, CUSTOM)
+                // smoke-build once NOW, not at the next caption start: a wrong file can only fail here with a
+                // message on the page, and (a bad engine config aside) sherpa-onnx's native code exits the whole
+                // process without saying anything, which the user would only see as captions never starting
+                try {
+                    createAsr(ctx, threads = 2).release()
+                } catch (e: Throwable) {
+                    saveCustom(ctx, null)
+                    select(ctx, BUILTIN)
+                    lastError = "导入的模型没能通过构建检验（${e.message ?: "引擎创建失败"}），已回到默认。换对「识别方式」或换文件再试。"
+                    log(ctx, "自定义模型导入冒烟检验失败", e)
+                }
                 post(after)
             } catch (e: Throwable) {
                 saveCustom(ctx, null)
@@ -445,5 +470,9 @@ object AsrModels {
 
     /** the room a download wants beyond the model's own bytes (the .part dupe of the biggest file, plus slack) */
     private const val SPACE_MARGIN = 300L * 1024 * 1024
-    private fun mb(b: Long) = "%.0f MB".format(b / 1048576.0)
+    private fun mb(b: Long) = when {
+        b >= 1_000_000L * 10 -> "${b / 1_000_000L} MB"
+        b >= 1_000_000L -> "%.1f MB".format(java.util.Locale.US, b / 1_000_000.0)
+        else -> "${b / 1024L} KB"
+    }
 }
