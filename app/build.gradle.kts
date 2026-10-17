@@ -8,7 +8,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.korenkrita.simulsub"
+        // The fork's own id: the upstream builds sign with the author's keystore and this fork signs with the CI's
+        // cached one, so the same id would mean an install that cannot be upgraded by the other side (see AGENTS.md
+        // 签名). A distinct id also lets the two coexist. namespace (the code package) stays upstream's: renaming it
+        // would touch every file and turn each upstream sync into a conflict.
+        applicationId = "io.github.yuwanyuan.simulsub"
         minSdk = 29 // AudioPlaybackCapture
         targetSdk = 35
         versionCode = 29
