@@ -495,12 +495,22 @@ private fun TranslateTab() {
             val p = prefs.jevProvider
             Label("Jev 在线模型服务")
             Dropdown(JevProvider.entries.map { "${it.label}（${it.note}）" }, p.ordinal) { prefs.jevProvider = JevProvider.entries[it] }
-            if (!p.needsKey) Hint("不用填 key，打开就能用。这是免费的公共服务，可能随时限速或停用；服务不可用时，字幕照常显示，只是不做辅助。只发送识别出的文字和译文，不发送声音。")
+            if (!p.needsKey && !p.custom) Hint("不用填 key，打开就能用。这是免费的公共服务，可能随时限速或停用；服务不可用时，字幕照常显示，只是不做辅助。只发送识别出的文字和译文，不发送声音。")
             else {
                 val saved = prefs.jevKey(p)
-                Label(if (saved != null) "${p.label} 的 key：已保存（…${saved.takeLast(4)}）" else "${p.label} 的 key：还没填")
                 var input by remember(p) { mutableStateOf("") }
                 var err by remember(p) { mutableStateOf<String?>(null) }
+                // the custom channel: the user's own service, its address and model next to the key
+                var url by remember(p) { mutableStateOf(prefs.jevUrl) }
+                var model by remember(p) { mutableStateOf(prefs.jevModel) }
+                if (p.custom) {
+                    Label("服务地址（Jev 标准接口）")
+                    Field(url, { url = it; err = null }, "例如 https://你的服务器，结尾有没有 /v1 都可以")
+                    Label("模型 ID")
+                    Field(model, { model = it; err = null }, "例如 jev-latest")
+                }
+                Label(if (saved != null) "${p.label} 的 key：已保存（…${saved.takeLast(4)}）"
+                    else "${p.label} 的 key：${if (p.custom) "没填（服务不需要 key 可以空着）" else "还没填"}")
                 Field(input, { input = it; err = null }, if (saved != null) "输入新的 key 来替换" else "在这里粘贴 key", password = true)
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     err?.let { Text(it, color = C.err, fontSize = 13.sp) }
@@ -509,15 +519,28 @@ private fun TranslateTab() {
                     Btn("保存", primary = true) {
                         val k = input.trim()
                         when {
-                            k.isEmpty() -> {}
                             // a key with spaces/newlines/non-ASCII would be rejected by HTTP (and echoed in its error)
-                            !Jev.validKey(k) -> err = "key 里有空格、换行或特殊字符，请重新复制"
+                            k.isNotEmpty() && !Jev.validKey(k) -> err = "key 里有空格、换行或特殊字符，请重新复制"
+                            p.custom -> {
+                                // the address is filled in the way BYOK's is: a base is enough, the Jev path is added
+                                val (whyUrl, full) = JevChannel.url(url)
+                                val (whyModel, id) = JevChannel.model(model)
+                                val why = whyUrl ?: whyModel
+                                when {
+                                    why != null || full == null || id == null -> err = why ?: "地址格式不对"
+                                    // an empty key field keeps the saved one (清除 removes it)
+                                    !prefs.setJevCustom(full, id, k.ifEmpty { null }) -> err = "key 没能存进钥匙串，请再试一次"
+                                    else -> { input = ""; url = full; model = id }
+                                }
+                            }
+                            k.isEmpty() -> {}
                             !prefs.setJevKey(p, k) -> err = "key 没能存进钥匙串，请再试一次"
                             else -> input = ""
                         }
                     }
                 }
-                Hint("只发送识别出的文字和译文，不发送声音。key ${if (isWindows) "加密保存在这台电脑上，只有你的 Windows 账户能读出" else "保存在这台 Mac 的钥匙串里"}，不会写进使用记录。")
+                Hint(if (p.custom) "填自己的 Jev 兼容服务（标准接口：POST 到 …/v1/systemone）。key 没填就不发 Authorization 头。只发送识别出的文字和译文，不发送声音。"
+                    else "只发送识别出的文字和译文，不发送声音。key ${if (isWindows) "加密保存在这台电脑上，只有你的 Windows 账户能读出" else "保存在这台 Mac 的钥匙串里"}，不会写进使用记录。")
             }
         }
     }

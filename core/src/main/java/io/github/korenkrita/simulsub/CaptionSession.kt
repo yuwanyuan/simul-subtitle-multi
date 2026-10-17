@@ -24,6 +24,9 @@ interface SessionPrefs {
     val contextSentences: Int
     val jevProvider: JevProvider
     fun jevKey(p: JevProvider): String?
+    /** The custom channel's ([JevProvider.CUSTOM]) service address and model; "" when it is not chosen or not filled in. */
+    val jevUrl: String
+    val jevModel: String
     fun byokService(): ByokService?
     fun byokVariant(url: String, model: String): String?
     fun setByokVariant(url: String, model: String, name: String?)
@@ -317,10 +320,11 @@ class CaptionSession(private val host: SessionHost) {
                 val (mt, used, ev) = byok(s, version, wait, notices) ?: return null
                 // one Jev client for both features; no key = both paused until one is entered
                 // pauses count deep sleep: one kept across sessions ends at the time the service named
-                val judge = s.jevKey?.let {
-                    Jev(s.provider, it, source = s.source, target = s.target, clock = host::clock)
-                }
-                if (wantJev && judge == null) notices += "⚠ 在线 Decisions 模型辅助已暂停：还没填 ${s.provider.label} 的 key"
+                val judge = if (s.jevReady) s.jevKey?.let {
+                    Jev(s.provider, it, url = s.jevUrl, model = s.jevModel, source = s.source, target = s.target, clock = host::clock)
+                } else null
+                if (wantJev && judge == null) notices += if (s.jevReady) "⚠ 在线 Decisions 模型辅助已暂停：还没填 ${s.provider.label} 的 key"
+                    else "⚠ 在线 Decisions 模型辅助已暂停：自定义渠道的服务地址或模型 ID 还没填好"
                 return Built(Setup(mt, s.scene, s.source, s.target, judge, s.dedupe, s.contextN, version),
                     notices.joinToString("  ·  "), used, ev)
             }
@@ -662,10 +666,22 @@ class CaptionSession(private val host: SessionHost) {
         val byok = prefs.byokService()?.takeIf { it.model.isNotEmpty() } ?: fallback
         val provider = prefs.jevProvider
         /** null: no Jev wanted, or its key is missing; "" for a provider without a key */
-        val jevKey = if (!wantJev) null else if (provider.needsKey) prefs.jevKey(provider) else ""
+        val jevKey = when {
+            !wantJev -> null
+            // the custom channel's key is optional: "" sends no Authorization header
+            provider.custom -> prefs.jevKey(provider).orEmpty()
+            provider.needsKey -> prefs.jevKey(provider)
+            else -> ""
+        }
+        /** what to ask: the fixed channels name their own address and model, the custom channel's are the user's */
+        val jevUrl = (if (provider.custom) JevChannel.url(prefs.jevUrl).second else provider.url).orEmpty()
+        val jevModel = (if (provider.custom) JevChannel.model(prefs.jevModel).second else provider.model).orEmpty()
+        /** a custom channel is asked nothing before its address and model are both usable */
+        val jevReady = jevUrl.isNotEmpty() && jevModel.isNotEmpty()
 
         fun log() = mapOf("scene" to scene.label, "source_lang" to (source?.code ?: "auto"), "target_lang" to target.stored,
-            "jev" to jevKey?.let { provider.name }, "jev_model" to jevKey?.let { provider.model },
+            "jev" to jevKey?.let { provider.name }, "jev_model" to jevKey?.let { jevModel },
+            "jev_url" to jevKey?.let { jevUrl },
             "dedupe_join" to dedupe, "context_sentences" to contextN,
             "mt_model" to byok?.model, "mt_url" to byok?.url)
     }
@@ -673,10 +689,11 @@ class CaptionSession(private val host: SessionHost) {
     companion object {
         /**
          * Settings a running session takes from the next sentence. BYOK changes as one: "保存" writes its fields and
-         * then bumps byokSaved, so a half-saved address or model never becomes a setup. jevKey:* is matched apart.
+         * then bumps byokSaved, so a half-saved address or model never becomes a setup. jevKey:* is matched apart; the
+         * custom channel's jevUrl/jevModel are written with its key in one edit (see Prefs.setJevCustom).
          */
         private val setupKeys = setOf("scene", "scenes", "contextOn", "contextSentences", "dedupeJoin", "jevProvider",
-            "sourceLang", "targetLang")
+            "jevUrl", "jevModel", "sourceLang", "targetLang")
         // Apple silicon: four of the performance cores (M4 Pro: a 7 s recognition 53 -> 44 ms against 2 threads; 6 gave
         // 41 ms), and four threads on a Windows PC too. 8 Gen 3 (1×X4 + 5×A720 + 2×A520): four threads fit on the big
         // cores; not measured on a phone.

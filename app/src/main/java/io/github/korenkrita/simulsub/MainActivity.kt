@@ -863,19 +863,36 @@ class MainActivity : Activity() {
             jevBox.addView(dropdown(JevProvider.entries.map { "${it.label}（${it.note}）" }, p.ordinal, true) {
                 if (prefs.jevProvider.ordinal != it) { prefs.jevProvider = JevProvider.entries[it]; main.post { renderJev() } }
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            if (!p.needsKey) {
+            if (!p.needsKey && !p.custom) {
                 jevBox.addView(hint("不用填 key，打开就能用。这是免费的公共服务，可能随时限速或停用；服务不可用时，字幕照常显示，只是不做辅助。只发送识别出的文字和译文，不发送声音。"))
                 return
             }
-            val saved = prefs.jevKey(p)
-            jevBox.addView(label(if (saved != null) "${p.label} 的 key：已保存（…${saved.takeLast(4)}）" else "${p.label} 的 key：还没填"))
-            val input = android.widget.EditText(this).apply {
-                hint = if (saved != null) "输入新的 key 来替换" else "在这里粘贴 key"
-                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            // an error from the last 保存: typing anything again clears it
+            val err = TextView(this).apply { textSize = 13f; setTextColor(getColor(R.color.err)); visibility = View.GONE }
+            /** A labelled one-line input: the custom channel's address and model, and every channel's key. */
+            fun field(title: String, value: String, hintText: String, password: Boolean = false) = android.widget.EditText(this).apply {
+                jevBox.addView(label(title))
+                setText(value); hint = hintText
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    if (password) android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD else android.text.InputType.TYPE_TEXT_VARIATION_URI
                 isSingleLine = true; textSize = 16f; setTextColor(getColor(R.color.text))
                 importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun afterTextChanged(s: android.text.Editable?) { err.visibility = View.GONE }
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                })
+                jevBox.addView(this)
             }
-            jevBox.addView(input)
+            // the custom channel: the user's own service, its address and model next to the key
+            val url = if (p.custom) field("服务地址（Jev 标准接口）", prefs.jevUrl, "例如 https://你的服务器，结尾有没有 /v1 都可以") else null
+            val model = if (p.custom) field("模型 ID", prefs.jevModel, "例如 jev-latest") else null
+            val saved = prefs.jevKey(p)
+            val key = field(
+                if (saved != null) "${p.label} 的 key：已保存（…${saved.takeLast(4)}）"
+                else "${p.label} 的 key：${if (p.custom) "没填（服务不需要 key 可以空着）" else "还没填"}",
+                "", if (saved != null) "输入新的 key 来替换" else "在这里粘贴 key", password = true)
+            jevBox.addView(err)
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
             row.addView(MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
                 text = "清除"; textSize = 16f; isEnabled = saved != null
@@ -884,17 +901,33 @@ class MainActivity : Activity() {
             row.addView(MaterialButton(this).apply {
                 text = "保存"; textSize = 16f
                 setOnClickListener {
-                    val k = input.text.toString().trim()
-                    when {
-                        k.isEmpty() -> {}
-                        // a key with spaces/newlines/non-ASCII would be rejected by HTTP (and echoed in its error)
-                        !Jev.validKey(k) -> Toast.makeText(this@MainActivity, "key 里有空格、换行或特殊字符，请重新复制", Toast.LENGTH_LONG).show()
-                        else -> { prefs.setJevKey(p, k); input.setText(""); renderJev() }
+                    val k = key.text.toString().trim()
+                    // a key with spaces/newlines/non-ASCII would be rejected by HTTP (and echoed in its error)
+                    if (k.isNotEmpty() && !Jev.validKey(k)) {
+                        err.text = "key 里有空格、换行或特殊字符，请重新复制"; err.visibility = View.VISIBLE; return@setOnClickListener
                     }
+                    val u = url?.text?.toString(); val m = model?.text?.toString()
+                    if (u != null && m != null) {
+                        // the address is filled in the way BYOK's is: a base is enough, the Jev path is added
+                        val (whyUrl, full) = JevChannel.url(u)
+                        val (whyModel, id) = JevChannel.model(m)
+                        val why = whyUrl ?: whyModel
+                        if (why != null || full == null || id == null) {
+                            err.text = why ?: "地址格式不对"; err.visibility = View.VISIBLE; return@setOnClickListener
+                        }
+                        // an empty key field keeps the saved one (清除 removes it)
+                        prefs.setJevCustom(full, id, k.ifEmpty { null })
+                    } else {
+                        if (k.isEmpty()) return@setOnClickListener
+                        prefs.setJevKey(p, k)
+                    }
+                    key.setText(""); renderJev()
                 }
             })
             jevBox.addView(row)
-            jevBox.addView(hint("只发送识别出的文字和译文，不发送声音。key 加密保存在这台手机上，不会写进使用记录。"))
+            jevBox.addView(hint(if (p.custom)
+                "填自己的 Jev 兼容服务（标准接口：POST 到 …/v1/systemone）。key 没填就不发 Authorization 头。只发送识别出的文字和译文，不发送声音。"
+                else "只发送识别出的文字和译文，不发送声音。key 加密保存在这台手机上，不会写进使用记录。"))
         }
         jev.setOnCheckedChangeListener { _, on -> prefs.jevOn = on; renderJev() }
         jevCheck.setOnCheckedChangeListener { _, on -> prefs.jevCheck = on; renderJev() }

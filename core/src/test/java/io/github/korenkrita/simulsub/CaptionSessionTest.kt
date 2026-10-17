@@ -20,6 +20,8 @@ class CaptionSessionTest {
     private val mtCalls = AtomicInteger()
     /** the system prompts of the translation requests, in order */
     private val systems = java.util.concurrent.CopyOnWriteArrayList<String>()
+    /** the paths asked, in order: the translator's and a custom Jev channel's */
+    private val paths = java.util.concurrent.CopyOnWriteArrayList<String>()
 
     init {
         Thread {
@@ -30,6 +32,7 @@ class CaptionSessionTest {
                         val inp = sock.getInputStream()
                         val head = StringBuilder()
                         while (!head.endsWith("\r\n\r\n")) { val b = inp.read(); if (b < 0) return@use; head.append(b.toChar()) }
+                        paths += head.lines().first().split(' ').getOrNull(1) ?: ""
                         val len = head.lines().firstOrNull { it.lowercase().startsWith("content-length:") }
                             ?.substringAfter(':')?.trim()?.toInt() ?: 0
                         var o = 0; val body = ByteArray(len)
@@ -54,7 +57,7 @@ class CaptionSessionTest {
     private val logs = File(System.getProperty("java.io.tmpdir"), "simulsub-session-test-${System.nanoTime()}")
 
     private inner class FakePrefs : SessionPrefs {
-        override val jevOn = false
+        @Volatile override var jevOn = false
         override val jevCheck = false
         override val keepLogs = false
         override val keepSentences = CaptionBoard.DEFAULT_SENTENCES
@@ -68,7 +71,9 @@ class CaptionSessionTest {
         override val dedupeJoin = false
         override val contextOn = false
         override val contextSentences = 0
-        override val jevProvider = JevProvider.OFFICIAL
+        @Volatile override var jevProvider = JevProvider.OFFICIAL
+        @Volatile override var jevUrl = ""
+        @Volatile override var jevModel = ""
         override fun jevKey(p: JevProvider): String? = null
         override fun byokService() = ByokService("http://127.0.0.1:${server.localPort}/v1/chat/completions", "m-1", "")
         // tested before: no probe
@@ -250,6 +255,43 @@ class CaptionSessionTest {
         while (host.lines.count { it.isFinal } < 2 && monoMs() - t0 < 20_000) Thread.sleep(20)
         assertEquals(2, host.lines.count { it.isFinal })
         assertTrue(systems.drop(before).isNotEmpty() && systems.drop(before).all { "VTuber" in it })
+        host.post { s.stop() }
+        assertTrue(host.released.await(10, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun aCustomJevChannelIsAskedAtTheUsersAddress() {
+        // the audio stops just after the pause candidate: the question is recognized and asked while the speaker is
+        // still silent (fed in a burst, the final would otherwise evict the candidate before ASR takes it)
+        val audio = FakeAudio(1.5f, null, endsByItself = false).apply { gateAt = (2.5f * 16_000).toInt() }
+        val host = FakeHost(audio)
+        host.prefs.jevOn = true
+        host.prefs.jevProvider = JevProvider.CUSTOM
+        // the address as the settings save it: from a bare base, the standard Jev path is filled in
+        host.prefs.jevUrl = "http://127.0.0.1:${server.localPort}"
+        host.prefs.jevModel = "jev-mine"
+        val s = CaptionSession(host)
+        host.post { s.start() }
+        val t0 = monoMs()
+        while (!paths.contains("/v1/systemone") && monoMs() - t0 < 20_000) Thread.sleep(20)
+        assertTrue(paths.toString(), paths.contains("/v1/systemone"))
+        audio.more.countDown()
+        host.post { s.stop() }
+        assertTrue(host.released.await(10, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun aCustomJevChannelWithoutAnAddressIsPausedAndSaysSo() {
+        val host = FakeHost(FakeAudio(1.5f, null, endsByItself = false))
+        host.prefs.jevOn = true
+        host.prefs.jevProvider = JevProvider.CUSTOM
+        val s = CaptionSession(host)
+        host.post { s.start() }
+        val t0 = monoMs()
+        // nothing is asked while the address is missing: no judge at all, and the reason is on screen
+        while (host.diag?.contains("自定义渠道") != true && monoMs() - t0 < 20_000) Thread.sleep(20)
+        assertTrue(host.diag!!, host.diag!!.contains("自定义渠道的服务地址或模型 ID 还没填好"))
+        assertFalse(paths.contains("/v1/systemone"))
         host.post { s.stop() }
         assertTrue(host.released.await(10, TimeUnit.SECONDS))
     }

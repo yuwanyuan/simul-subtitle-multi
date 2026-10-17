@@ -20,12 +20,19 @@ import org.json.JSONTokener
 // TypeSafe Jev (System One decision model) client and the two questions the pipeline asks it.
 // Pure Kotlin + OkHttp so the Mac harness (tools/mac-e2e) runs the same code.
 
-/** [needsKey] false: no Authorization header is sent (Zen rejects a wrong key with 401 but answers without one). */
-enum class JevProvider(val label: String, val url: String, val model: String, val needsKey: Boolean = true, val note: String) {
+/**
+ * [needsKey] false: the key may be left empty, and no Authorization header is sent then (Zen rejects a wrong key with
+ * 401 but answers without one); a key that is filled in is sent. [custom]: the address and the model are the user's
+ * ([Jev]'s url and model), not this entry's.
+ */
+enum class JevProvider(val label: String, val url: String, val model: String, val needsKey: Boolean = true, val note: String,
+                       val custom: Boolean = false) {
     // free and keyless, but undocumented: it may get rate limits or a login at any time (tested 2026-10-10)
     ZEN("OpenCode Zen", "https://opencode.ai/zen/v1/systemone", "jev-1.13-free", needsKey = false, note = "免费，不用 key"),
     OFFICIAL("TypeSafe 官方", "https://api.typesafe.ai/v1/systemone", "jev-latest", note = "需要 key"),
     OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1/systemone", "~typesafe/jev-latest", note = "需要 key"),
+    // the user's own Jev-compatible service (self-hosted or a relay): address and model from the settings, key optional
+    CUSTOM("自定义", "", "", needsKey = false, note = "填自己的服务地址", custom = true),
 }
 
 /**
@@ -84,8 +91,10 @@ class Jev(
     private val provider: JevProvider,
     private val apiKey: String,
     private val deadlineMs: Long = 2_000,
-    /** tests point this at a local server */
+    /** tests point this at a local server; a custom channel: the user's address ([JevChannel.url]) */
     private val url: String = provider.url,
+    /** a custom channel: the user's model id ([JevChannel.model]); the fixed channels name their own */
+    private val model: String = provider.model,
     /** tests: runs after the request is registered for cancel() and before it is executed */
     private val beforeSend: () -> Unit = {},
     /** the session's languages; Japanese→Chinese uses the wording tuned on the test sets */
@@ -118,11 +127,13 @@ class Jev(
     override fun limitedAfter(gen: Int): Boolean = synchronized(svc) { gen >= 0 && svc.gen > gen }
 
     private fun ask(state: Map<String, String>, question: Map<String, Any>): JevCall {
-        val body = Json.encode(mapOf("model" to provider.model, "state" to state, "questions" to mapOf("x" to question)))
-        // an illegal header value would make the HTTP library put the key into its exception message
-        if (provider.needsKey && !validKey(apiKey)) return JevCall(body, 0, null, 0, "bad key", null)
+        val body = Json.encode(mapOf("model" to model, "state" to state, "questions" to mapOf("x" to question)))
+        // an illegal header value would make the HTTP library put the key into its exception message. A provider that
+        // needs no key sends no header without one; a key that is there (the custom channel's is optional) is sent.
+        val withKey = provider.needsKey || apiKey.isNotEmpty()
+        if (withKey && !validKey(apiKey)) return JevCall(body, 0, null, 0, "bad key", null)
         paused()?.let { return JevCall(body, 0, null, 0, "paused", null, it) }
-        val auth = if (provider.needsKey) mapOf("Authorization" to "Bearer $apiKey") else emptyMap()
+        val auth = if (withKey) mapOf("Authorization" to "Bearer $apiKey") else emptyMap()
         // let out only when not paused, checked again right before the request is written (after OkHttp's queue and
         // the connection); the generation it went out with tells a later 429 apart
         val sentGen = java.util.concurrent.atomic.AtomicInteger(-1)

@@ -103,6 +103,19 @@ class Prefs internal constructor(private val file: File) : SessionPrefs {
     fun setJevKey(p: JevProvider, key: String?): Boolean =
         Keychain.set("jevKey:${p.name}", key?.trim()).also { if (it) put("jevKey:${p.name}" to null) }
 
+    /** The custom channel's ([JevProvider.CUSTOM]) service address and model; plain: neither is a secret. */
+    override val jevUrl: String get() = str("jevUrl") ?: ""
+    override val jevModel: String get() = str("jevModel") ?: ""
+    /**
+     * "保存" for the custom channel: the key first (null = keep the saved one; refused = nothing is saved), then the
+     * address and model in one write, so a running session never pairs the new address with the old key.
+     */
+    fun setJevCustom(url: String, model: String, key: String?): Boolean {
+        if (key != null && !setJevKey(JevProvider.CUSTOM, key.ifBlank { null })) return false
+        put("jevUrl" to url.trim(), "jevModel" to model.trim())
+        return true
+    }
+
     /**
      * BYOK: the user's OpenAI-compatible services, saved as [LlmProfile]s; the one in use is byokActive. Each one's
      * fields are the storage names plus its suffix (the first one: the names from before). Keys in the keychain.

@@ -127,6 +127,18 @@ class Prefs(ctx: Context) : SessionPrefs {
     fun setJevKey(p: JevProvider, key: String?) =
         sp.edit().apply { if (key.isNullOrBlank()) remove("jevKey:${p.name}") else putString("jevKey:${p.name}", KeyBox.seal(key.trim())) }.apply()
 
+    /** The custom channel's ([JevProvider.CUSTOM]) service address and model; plain text: neither is a secret. */
+    override val jevUrl: String get() = sp.getString("jevUrl", "") ?: ""
+    override val jevModel: String get() = sp.getString("jevModel", "") ?: ""
+    /**
+     * "保存" for the custom channel: address, model and key in one edit (the key null = keep the saved one), so a
+     * session never pairs the new address with the old key.
+     */
+    fun setJevCustom(url: String, model: String, key: String? = null) = sp.edit().apply {
+        putString("jevUrl", url.trim()); putString("jevModel", model.trim())
+        if (key != null) { if (key.isBlank()) remove("jevKey:${JevProvider.CUSTOM.name}") else putString("jevKey:${JevProvider.CUSTOM.name}", KeyBox.seal(key.trim())) }
+    }.apply()
+
     /**
      * BYOK: the user's OpenAI-compatible services, saved as [LlmProfile]s; the one in use is byokActive. Each one's
      * fields are the storage names plus its suffix (the first one: the names from before). Keys are sealed like Jev's.

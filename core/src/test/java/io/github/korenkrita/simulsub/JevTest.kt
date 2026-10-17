@@ -365,6 +365,22 @@ class JevTest {
     }
 
     @Test
+    fun aCustomChannelAsksTheUsersAddressWithItsOwnModelAndOptionalKey() {
+        reply = { 200 to """{"answers":{"x":{"type":"noul","noul":0.9}}}""" }
+        // the address the settings saved: JevChannel.url fills a bare base in to the standard path
+        val url = JevChannel.url("http://127.0.0.1:$port").second!!
+        val c = Jev(JevProvider.CUSTOM, "sk-mine", url = url, model = "jev-mine").unfinished("はい")
+        assertEquals(0.9, c.noul!!, 1e-9); assertNull(c.error); assertEquals(200, c.status)
+        assertEquals("Bearer sk-mine", lastAuth.get())
+        val req = Json.parse(lastBody.get()!!) as Map<*, *>
+        assertEquals("jev-mine", req["model"])
+        assertEquals(mapOf("current" to "はい"), req["state"])
+        // the key is optional: without one no Authorization header is sent (a custom endpoint may take none)
+        assertEquals(200, Jev(JevProvider.CUSTOM, "", url = url, model = "jev-mine").unfinished("はい").status)
+        assertNull(lastAuth.get())
+    }
+
+    @Test
     fun questionsFollowTheSessionLanguagesAndJapaneseToChineseKeepsTheTunedWording() {
         assertSame(Jev.UNFINISHED, Jev.unfinishedQuestion(Lang.JA))
         assertSame(Jev.MISTRANSLATION, Jev.mistranslationQuestion(Lang.JA, Target.ZH))
