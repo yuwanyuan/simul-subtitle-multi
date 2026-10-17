@@ -1,0 +1,49 @@
+# The Android release APK on a GitHub ubuntu runner: the repo carries no binaries, so the job first runs setup.sh
+# (the sherpa-onnx AAR and the speech models, size + SHA-256 checked, cached across runs) and then gradle. Runs on a
+# push to my-mod, or by hand (a release: gh workflow run android.yml && gh release create with the artifact, see
+# docs/build.md).
+name: android
+on:
+  push:
+    branches: [my-mod]
+  workflow_dispatch:
+# one my-mod at a time: a new push supersedes a build still running
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      # setup.sh skips its downloads when the size + SHA-256 check passes, so these two make a re-run nearly free;
+      # ~/.android holds the debug keystore the release build signs with: cached under a fixed key, so consecutive CI
+      # APKs upgrade-install over each other instead of a fresh runner minting a new key every run (a locally built
+      # APK still signs with this machine's key — one of the two must be uninstalled first, see AGENTS.md 签名)
+      - uses: actions/cache@v4
+        with:
+          path: |
+            app/libs
+            models
+          key: android-deps-${{ hashFiles('setup.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android
+          key: android-debug-keystore
+      - run: ./setup.sh
+      # :core is pure JVM; the model-page pieces run under the app's unit tests too
+      - run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleRelease
+      - name: SimulSub-<version>-<commit>.apk
+        run: |
+          V=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          cp app/build/outputs/apk/release/app-release.apk "SimulSub-$V-${GITHUB_SHA:0:7}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SimulSub-android-arm64
+          path: SimulSub-*.apk
+          if-no-files-found: error
