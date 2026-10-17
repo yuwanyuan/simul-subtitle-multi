@@ -57,7 +57,11 @@ internal data class UpdateRelease(
         .put("notes", notes).put("apkUrl", apkUrl).put("size", size).put("sha256", sha256).toString()
 
     companion object {
-        const val REPO = "https://github.com/KorenKrita/simul-subtitle"
+        // The fork's own releases: pointed at upstream, a fork build would keep offering the official APK — which,
+        // with this fork's own applicationId, would install a second app instead of an update (AGENTS.md 已知坑 1).
+        // Nothing is published here yet, so a check just says 暂时没查到新版本; publish a release (the CI uploads
+        // SimulSub-<version>-<commit>.apk as an artifact) to turn it into a real update source.
+        const val REPO = "https://github.com/yuwanyuan/simul-subtitle-multi"
         const val LATEST = "$REPO/releases/latest/download/update.json"
         const val REMIND_INTERVAL = 24 * 60 * 60 * 1000L
         const val MAX_MANIFEST = 128 * 1024
