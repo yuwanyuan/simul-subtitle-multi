@@ -102,6 +102,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.openSettings).setOnClickListener { showSettings(true) }
         findViewById<View>(R.id.closeSettings).setOnClickListener { back() }
         findViewById<View>(R.id.openSize).setOnClickListener { showSize(true) }
+        findViewById<View>(R.id.modelRow).setOnClickListener { showModel(true) }
         findViewById<TextView>(R.id.aboutVersion).text = "${getString(R.string.app_name)}  版本 ${BuildConfig.VERSION_NAME}"
         findViewById<View>(R.id.openRepo).setOnClickListener {
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL))) }
@@ -111,6 +112,7 @@ class MainActivity : Activity() {
         showTab(tab)
         showSettings(savedInstanceState?.getBoolean("settings") == true)
         if (inSettings && savedInstanceState?.getBoolean("sizePage") == true) showSize(true)
+        if (inSettings && savedInstanceState?.getBoolean("modelPage") == true) showModel(true)
         updater = AppUpdater(this)
         // a rotation or theme change is not an entry into the app (unless it cancelled a check that was running)
         configRecreated = savedInstanceState?.getBoolean("configChange") == true
@@ -123,6 +125,8 @@ class MainActivity : Activity() {
     private var tab = 0
     /** The size page (字幕 › 字幕框大小和保留几句) is open over the 字幕 category. */
     private var inSize = false
+    /** The model page (字幕 › 语音识别模型), likewise; both are never open at once. */
+    private var inModel = false
 
     private fun showSettings(on: Boolean) {
         inSettings = on
@@ -137,7 +141,7 @@ class MainActivity : Activity() {
 
     private fun showTab(i: Int) {
         tab = i
-        TABS.forEachIndexed { n, (id, _) -> findViewById<View>(id).visibility = if (n == i && !inSize) View.VISIBLE else View.GONE }
+        TABS.forEachIndexed { n, (id, _) -> findViewById<View>(id).visibility = if (n == i && !inSize && !inModel) View.VISIBLE else View.GONE }
         findViewById<android.widget.ScrollView>(R.id.scroll).scrollTo(0, 0)
         if (TABS[i].first == R.id.tabCaption && inSettings) findViewById<View>(R.id.previewStage).post { loadStyle() }
     }
@@ -151,9 +155,20 @@ class MainActivity : Activity() {
         showTab(if (on) TABS.indexOfFirst { it.first == R.id.tabCaption } else tab)
     }
 
-    /** One step back: size page → settings → home → leave. */
+    /** The model page (字幕 › 语音识别模型), in the shape of [showSize]. */
+    private fun showModel(on: Boolean) {
+        inModel = on
+        findViewById<View>(R.id.modelPage).visibility = if (on) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.tabBox).visibility = if (on) View.GONE else View.VISIBLE
+        findViewById<TextView>(R.id.settingsTitle).text = if (on) "语音识别模型" else "设置"
+        showTab(if (on) TABS.indexOfFirst { it.first == R.id.tabCaption } else tab)
+        if (on) renderModels() else updateModelSummary()
+    }
+
+    /** One step back: size / model page → settings → home → leave. */
     private fun back(): Boolean = when {
         inSize -> { showSize(false); true }
+        inModel -> { showModel(false); true }
         inSettings -> { showSettings(false); true }
         else -> false
     }
@@ -163,6 +178,7 @@ class MainActivity : Activity() {
         outState.putBoolean("settings", inSettings)
         outState.putInt("tab", tab)
         outState.putBoolean("sizePage", inSize)
+        outState.putBoolean("modelPage", inModel)
         // recreated right away for a rotation / theme (no check then), unless that stops a check under way; a state
         // saved for a process the system may end is not this, and the restored app checks again
         outState.putBoolean("configChange", isChangingConfigurations && !updater.checking)
@@ -448,6 +464,15 @@ class MainActivity : Activity() {
         (0 until g.childCount).map { g.getChildAt(it) }.firstOrNull { it.tag == want }?.let { g.check(it.id) }
     }
 
+    /** 设置 › 字幕 › 语音识别模型, opened like [openTranslate] (through the category switch) with the page on top. */
+    private fun openModels() {
+        showSettings(true)
+        val g = findViewById<android.widget.FrameLayout>(R.id.tabBox).getChildAt(0) as com.google.android.material.button.MaterialButtonToggleGroup
+        val want = TABS.indexOfFirst { it.first == R.id.tabCaption }
+        (0 until g.childCount).map { g.getChildAt(it) }.firstOrNull { it.tag == want }?.let { g.check(it.id) }
+        showModel(true)
+    }
+
     override fun onResume() {
         super.onResume()
         loadStyle() // the overlay toolbar may have changed size / opacity / mode meanwhile (no listener while paused)
@@ -457,6 +482,8 @@ class MainActivity : Activity() {
         renderPermissions()
         renderTranscripts()
         renderLogs()
+        updateModelSummary()
+        if (inModel && inSettings) renderModels()
         render()
         main.post(ticker)
         updater.resume()
@@ -475,6 +502,7 @@ class MainActivity : Activity() {
         manualCheckStopped = isChangingConfigurations && updater.checkingManual
         updater.destroy()
         byokTest?.cancel(); byokTest = null
+        alive = false // a download's settle-post must not re-render into the dead screen; a new screen re-renders itself
         super.onDestroy()
     }
 
@@ -488,6 +516,8 @@ class MainActivity : Activity() {
             if (now != listedLogs) renderLogs()
             val ts = Transcript.list(getExternalFilesDir(null)!!)
             if (ts.map { it.name } to ts.firstOrNull { Transcript.isWriting(it) } != listedTranscripts) renderTranscripts()
+            // a settled download / import that happened with the model page closed, and the progress of one open
+            if (inModel && inSettings && (modelsDirty || AsrModels.downloading != null)) { modelsDirty = false; renderModels() }
             main.postDelayed(this, 800)
         }
     }
@@ -518,9 +548,18 @@ class MainActivity : Activity() {
             val missingPerm = !hasAudio() || !Settings.canDrawOverlays(this)
             val hint = if (missingPerm) "点下面的按钮，按提示允许下方两项，就能开始。" else "点下面的按钮，再在弹出的窗口里选你要看的 App。"
             renderService()
+            if (!AsrModels.anyReady(this)) {
+                // nothing in the APK any more: without one downloaded model there is nothing to hear with
+                status(R.color.warn, "先下载一个语音识别模型", "到「设置 › 字幕 › 语音识别模型」选一个下载：日英模型 77 MB，多语种 339 MB，德语 71 MB。下载完就能开始。")
+                primary.text = "去下载模型"; primary.setIconResource(R.drawable.ic_settings)
+                primary.backgroundTintList = ColorStateList.valueOf(getColor(R.color.brand))
+                onPrimary(R.color.on_brand)
+                primary.setOnClickListener { openModels() }
+                return
+            }
             if (!prefs.byokReady) {
                 // nothing else to set up: without an LLM API there is nothing to start, so the one action goes there
-                status(R.color.warn, "先填翻译用的 LLM API", "填好服务地址、模型 ID 和 API Key，点「测试连接」，就能开始。声音识别已经装在 App 里，不用下载。")
+                status(R.color.warn, "先填翻译用的 LLM API", "填好服务地址、模型 ID 和 API Key，点「测试连接」，就能开始。")
                 primary.text = "去填写"; primary.setIconResource(R.drawable.ic_settings)
                 primary.backgroundTintList = ColorStateList.valueOf(getColor(R.color.brand))
                 onPrimary(R.color.on_brand)
@@ -1429,7 +1468,209 @@ class MainActivity : Activity() {
         startActivity(Intent.createChooser(send, "分享 ${f.name}"))
     }
 
-    // ---- subtitle style ------------------------------------------------------------------------------------
+    // ---- speech models (字幕 › 语音识别模型) ----------------------------------------------------------------
+
+    /** set false in [onDestroy]: AsrModels' settles-post must not re-render a dead screen */
+    @Volatile private var alive = true
+    /** a copy / engine change settled while the model page was closed; the ticker re-renders it next open */
+    private var modelsDirty = false
+
+    /** what AsrModels reports on the UI thread, from downloads and imports. */
+    private fun onModelsChanged() {
+        if (!alive) return
+        if (inModel && inSettings) renderModels() else modelsDirty = true
+        updateModelSummary()
+    }
+
+    /** the 字幕 page's entry row always names the model in use (or says that none is downloaded yet) */
+    private fun updateModelSummary() {
+        val text = when {
+            AsrModels.selectionUsable(this) -> AsrModels.labelOf(this) + when (AsrModels.selected(this)) {
+                AsrModels.BUILTIN, AsrModels.CUSTOM -> ""
+                else -> if (AsrModels.downloading?.def?.id == AsrModels.selected(this)) "（下载中）" else ""
+            }
+            AsrModels.firstReady(this) != null ->
+                "${AsrModels.firstReady(this)!!.label}（已选的「${AsrModels.labelOf(this)}」文件不全）"
+            else -> "还没下载，先去 设置 › 字幕 › 语音识别模型 下载一个"
+        }
+        findViewById<TextView>(R.id.modelSummary).text = "现在用：$text"
+    }
+
+    /** One row of the model list: name, a grey line under it, and the actions that apply now. */
+    private fun modelRow(box: LinearLayout, texts: LinearLayout, actions: List<Pair<String, (() -> Unit)?>>,
+                         danger: Set<String> = emptySet()): LinearLayout {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        row.addView(texts, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        for ((t, fn) in actions) {
+            if (fn == null) { // a status pill ("使用中") that is not a button
+                row.addView(TextView(this).apply {
+                    text = t; textSize = 14f; setTextColor(getColor(R.color.ok)); setPadding((8 * dpx).toInt(), 0, (4 * dpx).toInt(), 0)
+                })
+                continue
+            }
+            row.addView(pillButton(t) { fn() }.apply {
+                if (t in danger) setTextColor(getColor(R.color.err))
+            })
+        }
+        box.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (10 * dpx).toInt()
+        })
+        return row
+    }
+
+    /** the grey title + status lines of a row */
+    private fun rowTexts(name: String, sub: String) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(TextView(this@MainActivity).apply { text = name; textSize = 16f; setTextColor(getColor(R.color.text)) })
+        addView(TextView(this@MainActivity).apply {
+            text = sub; textSize = 13f; setTextColor(getColor(R.color.text2)); setLineSpacing(2 * dpx, 1f)
+        })
+    }
+
+    /** 设置 › 字幕 › 语音识别模型: the models that can be downloaded, an imported one. Models are not in the APK. */
+    private fun renderModels() {
+        val root = findViewById<LinearLayout>(R.id.modelList)
+        root.removeAllViews()
+        val sel = AsrModels.selected(this)
+        val dl = AsrModels.downloading
+        var box = group(root, "可下载的模型")
+        box.addView(hint("识别模型不装在 App 里了，从这里一次下载，存在这台手机上，以后离线也能用。第一个是原来带在 App 里的日英模型。下载好会直接选用。"))
+        for (def in AsrModels.CATALOG) {
+            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            if (dl != null && dl.def.id == def.id) {
+                texts.addView(TextView(this).apply { text = def.label; textSize = 16f; setTextColor(getColor(R.color.text)) })
+                texts.addView(TextView(this).apply {
+                    val f = def.files.getOrNull(dl.fileIdx)?.local?.substringBeforeLast('.') ?: ""
+                    text = "正在下载 ${f}… ${dl.percent}%（${mb(dl.doneBytes, dl.fileBytes)}）"
+                    textSize = 13f; setTextColor(getColor(R.color.text2))
+                })
+                val bar = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
+                    max = 100; progress = dl.percent
+                    trackCornerRadius = (2 * dpx).toInt(); trackThickness = (4 * dpx).toInt()
+                    setIndicatorColor(getColor(R.color.brand)); setTrackColor(getColor(R.color.pill))
+                }
+                texts.addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * dpx).toInt() })
+                modelRow(box, texts, listOf("取消" to { AsrModels.cancelDownload() }))
+                continue
+            }
+            val ready = AsrModels.ready(this, def)
+            val used = sel == def.id && ready
+            val actions = mutableListOf<Pair<String, (() -> Unit)?>>()
+            if (used) actions += "使用中" to null else actions += "使用" to {
+                AsrModels.select(this, def.id); onModelsChanged()
+            }
+            if (ready) actions += "删除" to {
+                confirmDelete("删除「${def.label}」？", "删除后要再下载才能用（约 ${mb(def.sizeBytes)}）。") {
+                    AsrModels.delete(this, def.id); onModelsChanged()
+                }
+            } else actions += "下载并使用" to { confirmDownload(def) }
+            modelRow(box, texts.apply {
+                addView(TextView(this@MainActivity).apply { text = def.label; textSize = 16f; setTextColor(getColor(R.color.text)) })
+                addView(TextView(this@MainActivity).apply {
+                    text = def.summary + when {
+                        used -> " · 现在使用"
+                        ready -> " · 已下载"
+                        else -> " · 未下载"
+                    }
+                    textSize = 13f; setTextColor(getColor(R.color.text2)); setLineSpacing(2 * dpx, 1f)
+                })
+            }, actions, danger = setOf("删除"))
+        }
+        AsrModels.lastError?.let {
+            box.addView(note("⚠ " + it).apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = (10 * dpx).toInt() })
+        }
+
+        // -- a model the user brought: four files picked from the phone (or its file manager)
+        box = group(root, "本地自定义模型")
+        val custom = AsrModels.custom(this)
+        if (custom == null) {
+            box.addView(hint("用自己的 sherpa-onnx transducer 模型：识别不出的语言、自己训练的模型都可以。需要四个文件：encoder、decoder、joiner 和 tokens.txt。"))
+            modelRow(box, rowTexts("从手机导入", "在下面的窗口里选中这四个文件"), listOf("选文件" to { pickModelFiles() }))
+        } else {
+            val streamName = if (custom.kind == AsrModels.KIND_STREAMING) "流式" else "非流式"
+            modelRow(box, rowTexts("自定义模型", "$streamName · ${custom.files.values.joinToString("、")}"), listOf(
+                if (sel == AsrModels.CUSTOM && AsrModels.customReady(this)) "使用中" to null else "使用" to {
+                    AsrModels.select(this, AsrModels.CUSTOM); onModelsChanged()
+                },
+                "删除" to {
+                    confirmDelete("删除自定义模型？", "文件和设置都会删掉；要用得重新导入。") {
+                        AsrModels.delete(this, AsrModels.CUSTOM); onModelsChanged()
+                    }
+                }))
+        }
+        box.addView(label("识别方式", 8))
+        box.addView(dropdown(listOf("流式 zipformer（模型站下载的一般是）", "非流式 transducer（自己导出的）"),
+            if (custom == null || custom.kind == AsrModels.KIND_STREAMING) 0 else 1, custom != null) {
+            val kind = if (it == 0) AsrModels.KIND_STREAMING else AsrModels.KIND_OFFLINE
+            if (custom != null && custom.kind != kind) { AsrModels.setCustomKind(this, kind); onModelsChanged() }
+        })
+        box.addView(hint("多数能下载到的 zipformer 模型是流式的；自己导出的离线 transducer 选非流式。拿不准就先用流式，识别不出再来改。"))
+        findViewById<TextView>(R.id.modelHint).text =
+            "模型决定「听」的能力和会的语言。换模型从下次开始字幕时生效；正在识别时换了也不打断。" +
+            "下载和导入的模型只存在这台手机上，卸载 App 会一起删掉。"
+    }
+
+    /** Anything worth a mobile-data warning waits for a yes; all the models here qualify. */
+    private fun confirmDownload(def: AsrModelDef) {
+        if (def.sizeBytes < 50L * 1024 * 1024) { AsrModels.startDownload(this, def) { onModelsChanged() }; return }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("下载「${def.label}」？")
+            .setMessage("约 ${mb(def.sizeBytes)}，建议在 Wi-Fi 下。下载完会直接选用（从下次开始字幕时生效）。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("下载") { _, _ -> AsrModels.startDownload(this, def) { onModelsChanged() } }
+            .show()
+    }
+
+    /** the two progress numbers of a row, human-sized */
+    private fun mb(done: Long, of: Long) = "${mb(done)} / ${mb(of)}"
+    private fun mb(b: Long) = when {
+        b >= 1048576L * 10 -> "${b / 1048576L} MB"
+        b >= 1048576L -> "%.1f MB".format(b / 1048576.0)
+        else -> "${b / 1024L} KB"
+    }
+
+    /** SAF: the four transducer files may come from anywhere the user can browse (mis-named ones are told apart). */
+    private fun pickModelFiles() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        try { startActivityForResult(Intent.createChooser(i, "选模型的四个文件（encoder / decoder / joiner / tokens）"), REQ_IMPORT) }
+        catch (_: android.content.ActivityNotFoundException) { Toast.makeText(this, "这个手机没有能选文件的 App", Toast.LENGTH_LONG).show() }
+    }
+
+    /** the model files last picked, before a 流式/非流式 answer decides how they are used */
+    private var pendingImport: List<Pair<Uri, String>>? = null
+
+    private fun docName(uri: Uri): String? =
+        contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        } ?: uri.lastPathSegment
+
+    /**
+     * The import's one question: which engine runs the picked files (the files are copied either way; a wrong
+     * answer is changed in the page's 识别方式 dropdown, not by importing again).
+     */
+    private fun askImportKind(items: List<Pair<Uri, String>>) {
+        pendingImport = items
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("这个模型是流式的吗？")
+            .setMessage("模型站上的 zipformer 模型一般是流式的（文件名里有 streaming 或 chunk）。自己导出的离线 transducer 就选非流式。拿不准就选流式，之后在「识别方式」里随时改。")
+            .setNegativeButton("非流式 transducer") { _, _ -> doImport(false) }
+            .setPositiveButton("流式 zipformer") { _, _ -> doImport(true) }
+            .setNeutralButton("取消", null)
+            .setOnDismissListener { pendingImport = null }
+            .show()
+    }
+
+    private fun doImport(streaming: Boolean) {
+        val items = pendingImport ?: return
+        Toast.makeText(this, "正在导入（复制文件）…", Toast.LENGTH_SHORT).show()
+        val err = AsrModels.import(this, items, streaming) { onModelsChanged() }
+        if (err != null) Toast.makeText(this, err, Toast.LENGTH_LONG).show()
+    }
+
 
     private fun setupStyle() {
         preview = CaptionOverlayView(this, interactive = false)
@@ -1578,6 +1819,17 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_IMPORT && resultCode == RESULT_OK && data != null) {
+            // the picked files of an import: their names decide the role, 流式/非流式 is asked next
+            val items = mutableListOf<Pair<Uri, String>>()
+            val clip = data.clipData
+            if (clip != null) for (i in 0 until clip.itemCount) {
+                val uri = clip.getItemAt(i).uri
+                items += uri to (docName(uri) ?: continue)
+            } else data.data?.let { items += it to (docName(it) ?: return) }
+            if (items.isNotEmpty()) askImportKind(items)
+            return
+        }
         if (requestCode == REQ_PROJECTION && resultCode == RESULT_OK && data != null) {
             // Seen on Android 15 with "a single app": the system refused the foreground service here
             // (mAllowStartForeground false). Show it instead of crashing; the exact trigger is not pinned down.
@@ -1596,6 +1848,7 @@ class MainActivity : Activity() {
         var manualCheckStopped = false
         const val REQ_START = 1      // runtime permission asked on the way to starting subtitles
         const val REQ_PROJECTION = 2
+        const val REQ_IMPORT = 4     // SAF: the four files of a custom model (语音识别模型 › 本地自定义模型)
         val STYLE_KEYS = setOf("textSp", "bgAlpha", "widthFrac", "heightFrac", "showJa", "showStats", "keepSentences", "keepChars", "palette")
         const val REQ_PERM_ONLY = 3  // "去开启" in the permission list: grant only, never start
         const val LOGS_BEFORE_SCROLL = 5
