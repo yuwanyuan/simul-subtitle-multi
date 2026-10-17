@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fetches what the build needs but git does not hold: the sherpa-onnx AAR and the speech models (~75 MB), checked by
-# size + SHA-256. The models go into ./models (the Mac app and tools/mac-e2e take them from there) and are copied into
-# app/src/main/assets/models, so the APK carries them.
+# size + SHA-256. The models go into ./models (the Mac app and tools/mac-e2e take them from there); only the VAD is
+# still copied into app/src/main/assets/models for the APK — the ASR models are downloaded in-app instead
+# (设置 › 字幕 › 语音识别模型, AsrModels.kt), so the APK stays small and none ships by default.
 #   ./setup.sh
 # Set HTTPS_PROXY if GitHub / Hugging Face need a proxy.
 set -euo pipefail
@@ -44,8 +45,10 @@ fetch https://www.apache.org/licenses/LICENSE-2.0.txt models/asr/LICENSE
 fetch https://raw.githubusercontent.com/snakers4/silero-vad/1e261b036686cd0017d500ee96acd1c4ba572a9d/LICENSE models/vad/LICENSE
 
 A=app/src/main/assets/models
-mkdir -p "$A/asr" "$A/vad"
-for path in $(for m in "${MODELS[@]}"; do echo "${m%% *}"; done) asr/LICENSE vad/LICENSE; do
+mkdir -p "$A/vad"
+# the APK ships the VAD only; the ASR models live in ./models for the desktop and tools, the phone downloads its own
+for path in vad/silero_vad.onnx vad/LICENSE; do
   cmp -s "models/$path" "$A/$path" || cp "models/$path" "$A/$path"
 done
-echo "models ready: models/ and $A"
+rm -rf "$A/asr" # a leftover from before the models were split out of the APK
+echo "models ready: models/ and $A (assets: VAD only)"
