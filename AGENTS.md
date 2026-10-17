@@ -93,10 +93,10 @@
 
 版本号引用链：`versionName`/`versionCode` 定义在 `app/build.gradle.kts`，`:desktop` 用正则从该文件读取。**不要随手改版本号**——上游用 `Version X.Y` 格式的独立提交管理版本，本地如果也去动它会成为每次同步的冲突源；本地构建想区分时，用 tag 或分支名，不改 `versionCode`。
 
-## fork 模式的两个已知坑（改前必读）
+## fork 模式的两个已知坑（已于 2026-10-18 处置，此节记录现状）
 
-1. **应用内更新检查**：`AppUpdater.kt` 的清单源指向上游 `KorenKrita/simul-subtitle` 的 Release（见 `docs/build.md`）。本地修改版 APK 装到手机后，会持续把**官方版**当作"新版本"提示甚至下载覆盖。所以：本地修改版要么不要安装 release 构建（用 debug），要么先改掉 `AppUpdater` 的清单地址/禁用检查，并作为本地改动保留（改动集中在一个文件，冲突面小）。
-2. **签名**：上游 Release 用原机器的 debug.keystore 签名，本地构建用的是本机 keystore。两者签名不一致意味着官方版与本地版**不能互相覆盖安装**——想并存则必须改包名（`namespace` 与 `applicationId`），注意 `CaptionService` 等组件、悬浮窗与 FileProvider 的 authority 都引用包名，需一并处理。
+1. **应用内更新检查**：`AppUpdater.kt` 的清单源**已改指向本 fork** `yuwanyuan/simul-subtitle-multi` 的 Release（改动集中在一个常量 `REPO`，与上游的冲突面只有那一行）。本仓库暂未发布 Release，检查更新会温和地提示"暂时没查到新版本"。要发布用它：把 CI 的 artifact APK（`SimulSub-<version>-<commit>.apk`）作为 `gh release create v<x.y.z>` 的附件。注意 `UpdateRelease.parse` 要求清单里的 apkUrl 与文件名匹配 `REPO` 的 release 路径形状；`versionCode` 按上游规矩不动（27），所以除非另行约定，应用内"自动更新"不会自动触发。**绝不要把这个常量改回上游地址**：那样它会把官方 APK 当更新下载，而本 fork 的 applicationId 不同，装下去是第二个 App 而不是升级。
+2. **签名与包名**：上游 Release 用原作者的 debug keystore 签名，本 fork 的 CI 构建用缓存的 CI debug keystore 签名。本 fork 因此使用**自己的包名** `applicationId = io.github.yuwanyuan.simulsub`（在 `app/build.gradle.kts`）——与官方版并存安装互不干扰、互不覆盖；**`namespace`（代码包名）保持 `io.github.korenkrita.simulsub` 不变**：改 namespace 要动全部源文件，等于每次同步上游都制造大面积冲突，而 Manifest 的 FileProvider authority 用 `${applicationId}` 占位符，会自动跟随。数据与模型按 applicationId 隔离（换包名后手机上等于全新安装，模型要重新下载）；CI 缓存的 keystore 是固定 key，连续 CI 构建之间可以正常覆盖升级。
 
 ## 代码与修改规范（AI 协作硬规则）
 
