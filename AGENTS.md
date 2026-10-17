@@ -43,7 +43,7 @@
 ./gradlew :core:test :app:testDebugUnitTest
 ```
 
-事实要点：`minSdk 29`、`versionName`/`versionCode` 定义在 `app/build.gradle.kts`（当前 1.0.7 / 27），`:desktop` 用正则从该文件读取版本号，**两处引用链动一发牵全身**；`setup.sh` 把模型复制进 `app/src/main/assets/models/` 并直接打进 APK（`.onnx` 不压缩存放）。
+事实要点：`minSdk 29`、`versionName`/`versionCode` 定义在 `app/build.gradle.kts`（当前 1.0.7 / 27），`:desktop` 用正则从该文件读取版本号，**两处引用链动一发牵全身**；`setup.sh` 只把 **VAD 模型**复制进 `app/src/main/assets/models/`，ASR 模型不再打进 APK——手机端在 设置 › 字幕 › 语音识别模型 里按需下载（`AsrModels.kt` 的目录与校验和），桌面端和工具仍从 `./models/` 读（`.onnx` 不压缩存放）。
 </think>文件比较长，我用文档级结构一次写完。现在写入根目录 `AGENTS.md`。<tool_call>Write<arg_key>content</arg_key><arg_value># 本地开发规范
 
 本仓库是 [KorenKrita/simul-subtitle](https://github.com/KorenKrita/simul-subtitle) 的 fork（创建于 2026-10-16）。本文档面向在本仓库内工作的人与 AI 编码助手，约定**本地改动、构建、测试与上游同步**的规则；项目本身的技术文档见 [docs/README.md](docs/README.md)。本文件为本地新增（fork 的 "multi" 部分），不进入上游 `docs/` 索引，也不回传上游。
