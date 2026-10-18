@@ -19,10 +19,10 @@ android {
         // only, so staying at 27 would keep every release "已是最新" forever. Formula (AGENTS.md 版本号): the
         // upstream code × 100 + this fork's release number, so the next fork releases count 2702, 2703… and an
         // upstream sync to code 28 resumes at 2801.
-        versionCode = 2702
+        versionCode = 2703
         // The fork's own scheme (AGENTS.md 版本号): the upstream version it follows, then -multi.<this fork's own
         // release number>, counted from 1 and reset when the upstream part changes.
-        versionName = "1.0.7-multi.2"
+        versionName = "1.0.7-multi.3"
         ndk { abiFilters += "arm64-v8a" }
     }
 
