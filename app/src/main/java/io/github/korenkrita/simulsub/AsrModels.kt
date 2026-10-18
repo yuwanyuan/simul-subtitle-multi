@@ -23,6 +23,9 @@ class AsrModelDef(
     /** true = streaming (chunked) zipformer → [StreamingSherpaAsr]; false = offline → [FileTransducerAsr] */
     val streaming: Boolean,
     val files: List<FileDef>,
+    /** the model's own name where it lives (owner/repository on Hugging Face / ModelScope), shown on the download
+     *  rows: the [label] is ours and friendly, this is what the model is called upstream and what lands on disk */
+    val origin: String = "",
 ) {
     class FileDef(val local: String, val urls: List<String>, val bytes: Long, val sha256: String?)
 
@@ -75,6 +78,7 @@ object AsrModels {
                 AsrModelDef.FileDef("tokens.txt", listOf(REAZON + "tokens.txt"),
                     26_631, "144f8a4f639373a1bdf7eabb2437482ef64b0cc5db24ad27cce65f293e4faa24"),
             ),
+            origin = "csukuangfj/reazonspeech-k2-v2-ja-en",
         ),
         AsrModelDef(
             "ms-lingualive-multilingual", "多语种流式模型（LinguaLive）",
@@ -93,6 +97,7 @@ object AsrModels {
                 AsrModelDef.FileDef("tokens.txt", listOf(MS + "tokens.txt"),
                     195_244, "784f24950f6bcce1b0021035632dd60fd4617ecd8ca0581ab57d7b39d77ba5ab"),
             ),
+            origin = "admin2558/lingualive-streaming-zipformer-multilingual-int8",
         ),
         AsrModelDef(
             "hf-kroko-de", "德语流式模型（Kroko）",
@@ -104,6 +109,7 @@ object AsrModels {
                 AsrModelDef.FileDef("joiner.onnx", KROKO.map { it + "joiner.onnx" }, 336_817, null),
                 AsrModelDef.FileDef("tokens.txt", KROKO.map { it + "tokens.txt" }, 5_606, null),
             ),
+            origin = "csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06",
         ),
     )
 
