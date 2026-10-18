@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "revision": "2026-10-19",
+  "models": [
+    {
+      "id": "builtin",
+      "label": "日英模型（ReazonSpeech）",
+      "summary": "日、英 · 约 77 MB · HuggingFace（镜像下载）· 非流式 zipformer · 原本装在 App 里的那个",
+      "streaming": false,
+      "origin": "csukuangfj/reazonspeech-k2-v2-ja-en",
+      "files": [
+        {
+          "local": "encoder-epoch-35-avg-1.int8.onnx",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/encoder-epoch-35-avg-1.int8.onnx",
+            "https://huggingface.co/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/encoder-epoch-35-avg-1.int8.onnx"
+          ],
+          "bytes": 70876409,
+          "sha256": "ead1579e118b821a767242a8eb9272634b0e63ba16f8dfc4d126732406eae268"
+        },
+        {
+          "local": "decoder-epoch-35-avg-1.onnx",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/decoder-epoch-35-avg-1.onnx",
+            "https://huggingface.co/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/decoder-epoch-35-avg-1.onnx"
+          ],
+          "bytes": 5165084,
+          "sha256": "90b60985672df5023e187e9d25aa2dc93abc4286bfacf71a35a78a6b76d88df5"
+        },
+        {
+          "local": "joiner-epoch-35-avg-1.int8.onnx",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/joiner-epoch-35-avg-1.int8.onnx",
+            "https://huggingface.co/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/joiner-epoch-35-avg-1.int8.onnx"
+          ],
+          "bytes": 1033417,
+          "sha256": "c7f4ba40a8ae307a6c30b5c06e2570add04466bcb45bab62699f0ec5d00ed495"
+        },
+        {
+          "local": "tokens.txt",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/tokens.txt",
+            "https://huggingface.co/csukuangfj/reazonspeech-k2-v2-ja-en/resolve/12b44671ff48b9aed622551d64e02fea9a2cf870/tokens.txt"
+          ],
+          "bytes": 26631,
+          "sha256": "144f8a4f639373a1bdf7eabb2437482ef64b0cc5db24ad27cce65f293e4faa24"
+        }
+      ]
+    },
+    {
+      "id": "ms-lingualive-multilingual",
+      "label": "多语种流式模型（LinguaLive）",
+      "summary": "中、英、日、俄、泰、越、印尼、阿拉伯语 · 约 339 MB · 魔搭 ModelScope · 流式 zipformer",
+      "streaming": true,
+      "origin": "admin2558/lingualive-streaming-zipformer-multilingual-int8",
+      "files": [
+        {
+          "local": "encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+          "urls": [
+            "https://www.modelscope.cn/models/admin2558/lingualive-streaming-zipformer-multilingual-int8/resolve/c1faa2cad48d7a501047d84d87bfc0a2b66612e6/encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx"
+          ],
+          "bytes": 296583597,
+          "sha256": "f9001ed7a9e46d0294438c1a30cd7c72d1cc4bdd4e7880edbcda36f67081e32e"
+        },
+        {
+          "local": "decoder-epoch-75-avg-11-chunk-16-left-128.onnx",
+          "urls": [
+            "https://www.modelscope.cn/models/admin2558/lingualive-streaming-zipformer-multilingual-int8/resolve/c1faa2cad48d7a501047d84d87bfc0a2b66612e6/decoder-epoch-75-avg-11-chunk-16-left-128.onnx"
+          ],
+          "bytes": 33837085,
+          "sha256": "7ebc63f34b21c8efb4a41a5a2eee7fe1448829ce0230ecc5369e67fc14d90d48"
+        },
+        {
+          "local": "joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+          "urls": [
+            "https://www.modelscope.cn/models/admin2558/lingualive-streaming-zipformer-multilingual-int8/resolve/c1faa2cad48d7a501047d84d87bfc0a2b66612e6/joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx"
+          ],
+          "bytes": 8257421,
+          "sha256": "db88e3172323551abaa99b91b18fb422a27ea4a834fd0db10389f9478816f917"
+        },
+        {
+          "local": "tokens.txt",
+          "urls": [
+            "https://www.modelscope.cn/models/admin2558/lingualive-streaming-zipformer-multilingual-int8/resolve/c1faa2cad48d7a501047d84d87bfc0a2b66612e6/tokens.txt"
+          ],
+          "bytes": 195244,
+          "sha256": "784f24950f6bcce1b0021035632dd60fd4617ecd8ca0581ab57d7b39d77ba5ab"
+        }
+      ]
+    },
+    {
+      "id": "hf-kroko-de",
+      "label": "德语流式模型（Kroko）",
+      "summary": "德语 · 约 71 MB · HuggingFace（镜像下载）· 流式 zipformer",
+      "streaming": true,
+      "origin": "csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06",
+      "files": [
+        {
+          "local": "encoder.onnx",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/encoder.onnx",
+            "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/encoder.onnx"
+          ],
+          "bytes": 70091557,
+          "sha256": "6e83993d6967ec7a3498b055b7e85ace85b5d64d1b1e8773cb29a43a11f5edb5"
+        },
+        {
+          "local": "decoder.onnx",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/decoder.onnx",
+            "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/decoder.onnx"
+          ],
+          "bytes": 617489,
+          "sha256": "94a29592b403c53fa2231b478637da1ab4abcef7f5e46e432098416a4a3ed562"
+        },
+        {
+          "local": "joiner.onnx",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/joiner.onnx",
+            "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/joiner.onnx"
+          ],
+          "bytes": 336817,
+          "sha256": "28356bff070aea51ab1d725a3278e81d19f9300f860d3248a7014292264df15a"
+        },
+        {
+          "local": "tokens.txt",
+          "urls": [
+            "https://hf-mirror.com/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/tokens.txt",
+            "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/tokens.txt"
+          ],
+          "bytes": 5606,
+          "sha256": "86e8370994ff2c01149ba8c4f8709aa93cdc18914b27a717e291e96faf39a6eb"
+        }
+      ]
+    }
+  ]
+}
