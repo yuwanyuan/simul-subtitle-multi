@@ -267,6 +267,9 @@ object AsrModels {
     /** the download in progress, if any (one at a time) */
     @Volatile var downloading: Download? = null; private set
 
+    /** An import in progress (its copy and smoke build): the page shows it, and it keeps downloads out too. */
+    @Volatile var importing: Boolean = false; private set
+
     /**
      * Starts downloading [def] (no-op while another download runs or the model is already there). Checks the free
      * space first. When it succeeds the model is put in use ([select]) — the row says 「下载并使用」, this is the
@@ -277,6 +280,12 @@ object AsrModels {
         if (downloading != null) {
             // the confirm dialog can outlive the state it was opened on (the every-800ms page rebuild): say so
             lastError = "有另一个下载正在进行，等它完成再试。"
+            post(after)
+            return
+        }
+        if (importing) {
+            // an import and a download both settle by putting their model in use (select): one of them at a time
+            lastError = "正在导入自定义模型，等它完成再试。"
             post(after)
             return
         }
@@ -414,11 +423,15 @@ object AsrModels {
     /**
      * Copies the picked documents into [CUSTOM]'s directory and records their roles in the custom meta; [streaming]
      * picks the engine (a non-streaming transducer is switched in the page with [setCustomKind]). @return what is
-     * missing (nothing copied then), or null once the copy is under way — [after] runs on the UI thread when it
-     * settled: success put the custom model in use, failure leaves none.
+     * missing or blocks it (nothing starts then), or null once the copy is under way — [after] runs on the UI thread
+     * when it settled: success put the custom model in use, failure leaves none and says why on the page.
      */
     fun import(ctx0: Context, items: List<Pair<Uri, String>>, streaming: Boolean, after: () -> Unit): String? {
         val ctx = ctx0.applicationContext
+        // one download or import at a time: both settle by putting their model in use (select), and two imports
+        // copying into the same directory at once interleave their files
+        if (downloading != null) return "有模型正在下载，等它完成再导入。"
+        if (importing) return "上一个导入还没完成，等它完成再试。"
         val roles = LinkedHashMap<String, Pair<Uri, String>>() // role → uri + name
         for ((uri, name) in items) roleOf(name)?.let { roles[it] = uri to name }
         val missing = ROLES.filter { it !in roles }
@@ -428,6 +441,7 @@ object AsrModels {
         val duplicated = ROLES.filter { role -> items.count { roleOf(it.second) == role } > 1 }
         if (duplicated.isNotEmpty())
             return "选重了：${duplicated.joinToString("、") { roleName(it) }} 各选一个就够，请重新选四个正确的文件。"
+        importing = true
         Thread({
             try {
                 val dir = dir(ctx, CUSTOM)
@@ -435,8 +449,8 @@ object AsrModels {
                 val names = LinkedHashMap<String, String>()
                 for (role in ROLES) {
                     val (uri, name) = roles[role]!!
-                    // tokens.txt first: copied one per role, so an unreadable file leaves the previous import deleted
-                    // and the meta not written — the session falls back to built-in, the page says what went wrong
+                    // copied one per role, so an unreadable file leaves the previous import deleted and the meta not
+                    // written — the session falls back to another model, and the catch below says what went wrong
                     names[role] = copy(ctx, uri, dir, name)
                 }
                 saveCustom(ctx, CustomModel(if (streaming) KIND_STREAMING else KIND_OFFLINE, names))
@@ -451,13 +465,18 @@ object AsrModels {
                     select(ctx, BUILTIN)
                     lastError = "导入的模型没能通过构建检验（${e.message ?: "引擎创建失败"}），已回到默认。换对「识别方式」或换文件再试。"
                     log(ctx, "自定义模型导入冒烟检验失败", e)
+                    runCatching { dir.deleteRecursively() } // a model that cannot build is not kept on the phone
                 }
-                post(after)
             } catch (e: Throwable) {
                 saveCustom(ctx, null)
-                select(ctx, BUILTIN)
-                post { after() }
+                // the copy above deleted the previous import's files: a selection pointing at them falls back
+                if (selected(ctx) == CUSTOM) select(ctx, BUILTIN)
+                lastError = "导入失败：${e.message ?: "未知原因"}，请重新选四个文件再试。"
                 log(ctx, "自定义模型导入失败", e)
+                runCatching { dir(ctx, CUSTOM).deleteRecursively() } // half-copied files would sit there unlisted
+            } finally {
+                importing = false
+                post(after)
             }
         }, "asr-model-import").start()
         return null
