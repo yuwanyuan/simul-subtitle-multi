@@ -12,3 +12,6 @@ tools/mac-app/build/
 app/src/main/assets/models/
 tools/win-app/build/
 .DS_Store
+
+# the fork's signing key: the local copy and the CI secret's restore land here, never in the repo (see AGENTS.md 签名)
+keystore/

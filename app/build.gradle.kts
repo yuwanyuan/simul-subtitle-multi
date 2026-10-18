@@ -23,6 +23,23 @@ android {
     // the speech models in assets/models (setup.sh): stored, so sherpa-onnx reads them from the APK without inflating
     androidResources { noCompress += "onnx" }
 
+    signingConfigs {
+        // One key signs every build — local, any machine, CI — so an APK always upgrades over another build of this
+        // applicationId. The key itself is NOT in the repo (keystore/ is gitignored): locally it is the file below,
+        // generated once with keytool (see AGENTS.md 签名); on CI the same path is restored from the
+        // SIMULSUB_KEYSTORE_B64 secret. A build without it fails at signing instead of quietly using another key —
+        // that is how local and CI APKs stopped upgrading over each other on 2026-10-17/18 (three debug keys in two
+        // days: the CI keystore cache reported a hit every run and the runner still signed with something else).
+        getByName("debug") {
+            val key = rootProject.file("keystore/fork-debug.keystore")
+            if (!key.isFile) logger.warn("签名 keystore 不在 ${key.path}：打包会失败。本地用 keytool 生成一把，CI 由 SIMULSUB_KEYSTORE_B64 还原（见 AGENTS.md 签名）")
+            storeFile = key
+            storePassword = System.getenv("SIMULSUB_KEYSTORE_PASSWORD") ?: "simulsub-debug"
+            keyAlias = "fork-debug"
+            keyPassword = System.getenv("SIMULSUB_KEYSTORE_PASSWORD") ?: "simulsub-debug"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
