@@ -103,6 +103,8 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.closeSettings).setOnClickListener { back() }
         findViewById<View>(R.id.openSize).setOnClickListener { showSize(true) }
         findViewById<View>(R.id.modelRow).setOnClickListener { showModel(true) }
+        // the home card's model row under 翻译: which model captions hear with; opens 设置 › 字幕 › 语音识别模型
+        findViewById<View>(R.id.homeModelRow).setOnClickListener { openModels() }
         findViewById<TextView>(R.id.aboutVersion).text = "${getString(R.string.app_name)}  版本 ${BuildConfig.VERSION_NAME}"
         findViewById<View>(R.id.openRepo).setOnClickListener {
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL))) }
@@ -1494,6 +1496,8 @@ class MainActivity : Activity() {
             else -> "还没下载，先去 设置 › 字幕 › 语音识别模型 下载一个"
         }
         findViewById<TextView>(R.id.modelSummary).text = "现在用：$text"
+        // the same line on the home card's model row, next to 翻译
+        findViewById<TextView>(R.id.homeModelText).text = "模型：$text"
     }
 
     /** One row of the model list: name, a grey line under it, and the actions that apply now. */
