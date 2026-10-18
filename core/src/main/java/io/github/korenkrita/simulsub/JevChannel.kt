@@ -48,9 +48,11 @@ object JevChannel {
      * Asks the service at [url] (already filled in, see [url]) the standard "unfinished?" question, through the same
      * client a session uses, and turns what came back into a verdict for the 测试连接 button: an HTTP status, an
      * answer that is not Jev's shape, a limit, or a connection failure. Never throws. The 429 pause is per service and
-     * key, as in a session, so a limit found here is respected by the session too.
+     * key, as in a session, so a limit found here is respected by the session too. The deadline is the session's own
+     * ([Jev]'s 2 s): a service that only answers slower than a session's request would test as usable here and then
+     * never light up in a session.
      */
-    fun probe(url: String, model: String, key: String? = null, deadlineMs: Long = 4_000): JevProbe {
+    fun probe(url: String, model: String, key: String? = null, deadlineMs: Long = 2_000): JevProbe {
         val call = Jev(JevProvider.CUSTOM, key.orEmpty(), deadlineMs, url = url, model = model).unfinished(PROBE)
         val ms = "${call.ms} ms"
         return when {
