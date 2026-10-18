@@ -1548,6 +1548,9 @@ class MainActivity : Activity() {
                     text = "正在下载 ${f}… ${dl.percent}%（${mb(dl.doneBytes, dl.fileBytes)}）"
                     textSize = 13f; setTextColor(getColor(R.color.text2))
                 })
+                texts.addView(TextView(this).apply {
+                    text = "原名：${def.origin}"; textSize = 13f; setTextColor(getColor(R.color.text2)); setLineSpacing(2 * dpx, 1f)
+                })
                 val bar = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
                     max = 100; progress = dl.percent
                     trackCornerRadius = (2 * dpx).toInt(); trackThickness = (4 * dpx).toInt()
@@ -1578,6 +1581,9 @@ class MainActivity : Activity() {
                         else -> " · 未下载"
                     }
                     textSize = 13f; setTextColor(getColor(R.color.text2)); setLineSpacing(2 * dpx, 1f)
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = "原名：${def.origin}"; textSize = 13f; setTextColor(getColor(R.color.text2)); setLineSpacing(2 * dpx, 1f)
                 })
             }, actions, danger = setOf("删除"))
         }
