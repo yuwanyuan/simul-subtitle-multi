@@ -15,7 +15,11 @@ android {
         applicationId = "io.github.yuwanyuan.simulsub"
         minSdk = 29 // AudioPlaybackCapture
         targetSdk = 35
-        versionCode = 27
+        // The fork's own code, above the installed upstream value (27): the in-app updater compares versionCode
+        // only, so staying at 27 would keep every release "已是最新" forever. Formula (AGENTS.md 版本号): the
+        // upstream code × 100 + this fork's release number, so the next fork releases count 2702, 2703… and an
+        // upstream sync to code 28 resumes at 2801.
+        versionCode = 2701
         // The fork's own scheme (AGENTS.md 版本号): the upstream version it follows, then -multi.<this fork's own
         // release number>, counted from 1 and reset when the upstream part changes.
         versionName = "1.0.7-multi.1"
