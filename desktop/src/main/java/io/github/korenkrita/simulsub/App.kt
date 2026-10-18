@@ -517,7 +517,8 @@ private fun TranslateTab() {
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     err?.let { Text(it, color = C.err, fontSize = 13.sp) }
                     Grow()
-                    TextBtn("清除", enabled = saved != null) { if (!prefs.setJevKey(p, null)) err = "没能从钥匙串删掉 key，请再试一次" }
+                    // the typed key goes with it: 保存 would otherwise put the cleared key back (the box shows dots)
+                    TextBtn("清除", enabled = saved != null) { if (!prefs.setJevKey(p, null)) err = "没能从钥匙串删掉 key，请再试一次" else input = "" }
                     Btn("保存", primary = true) {
                         val k = input.trim()
                         when {

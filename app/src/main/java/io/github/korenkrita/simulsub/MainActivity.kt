@@ -891,7 +891,9 @@ class MainActivity : Activity() {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
             row.addView(MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
                 text = "清除"; textSize = 16f; isEnabled = saved != null
-                setOnClickListener { prefs.setJevKey(p, null); renderJev() }
+                // the draft's key is cleared with it: it refills the box on the next render, and 保存 would store the
+                // cleared key right back (the box shows dots, so nothing would look wrong)
+                setOnClickListener { prefs.setJevKey(p, null); jevDraft?.key = ""; renderJev() }
             })
             row.addView(MaterialButton(this).apply {
                 text = "保存"; textSize = 16f
