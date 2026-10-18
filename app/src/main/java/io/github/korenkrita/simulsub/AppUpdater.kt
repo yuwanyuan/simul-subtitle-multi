@@ -94,7 +94,9 @@ internal data class UpdateRelease(
             val size = j.get("size").toString().toLong()
             val hash = j.getString("sha256").lowercase()
             val url = j.getString("apkUrl")
-            require(code > 0 && name.matches(Regex("[0-9]+(?:\\.[0-9]+){1,3}")))
+            // the upstream shape, or this fork's own "1.0.7-multi.1" (the suffix carries no path characters, so a
+            // manifest still cannot point the downloader anywhere by name)
+            require(code > 0 && name.matches(Regex("[0-9]+(?:\\.[0-9]+){1,3}(?:-multi\\.[0-9]+)?")))
             require(size in 1..200_000_000 && hash.matches(Regex("[0-9a-f]{64}")))
             // A proxy-supplied manifest cannot point the downloader at an arbitrary site or file.
             require(url == "$REPO/releases/download/v$name/simul-subtitle-v$name.apk")
