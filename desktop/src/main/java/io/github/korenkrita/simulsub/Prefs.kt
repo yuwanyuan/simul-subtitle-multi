@@ -107,11 +107,12 @@ class Prefs internal constructor(private val file: File) : SessionPrefs {
     override val jevUrl: String get() = str("jevUrl") ?: ""
     override val jevModel: String get() = str("jevModel") ?: ""
     /**
-     * "保存" for the custom channel: the key first (null = keep the saved one; refused = nothing is saved), then the
-     * address and model in one write, so a running session never pairs the new address with the old key.
+     * "保存" for the custom channel: the keychain first (null = keep the saved one; refused = nothing is saved), then
+     * the address and the model in one write. Not [setJevKey]: its own write fires the session's rebuild listener
+     * before the fields are in, and the rebuild would read the new key paired with the old address.
      */
     fun setJevCustom(url: String, model: String, key: String?): Boolean {
-        if (key != null && !setJevKey(JevProvider.CUSTOM, key.ifBlank { null })) return false
+        if (key != null && !Keychain.set("jevKey:${JevProvider.CUSTOM.name}", key.trim().ifEmpty { null })) return false
         put("jevUrl" to url.trim(), "jevModel" to model.trim())
         return true
     }
