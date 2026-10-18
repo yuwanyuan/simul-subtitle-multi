@@ -884,19 +884,66 @@ class MainActivity : Activity() {
                 })
                 jevBox.addView(this)
             }
-            // the custom channel: the user's own service, its address and model next to the key
-            val url = if (p.custom) field("服务地址（Jev 标准接口）", prefs.jevUrl, "例如 https://你的服务器，结尾有没有 /v1 都可以") else null
-            val model = if (p.custom) field("模型 ID", prefs.jevModel, "例如 jev-latest") else null
+            // the custom channel: the user's own service, its address and model next to the key; what is typed lives in
+            // a draft outside the render (the same as BYOK's), so a test or any other re-render does not drop it
+            val draft = if (p.custom) jevDraft ?: JevDraft(prefs.jevUrl, prefs.jevModel, "").also { jevDraft = it } else null
+            val url = if (p.custom) field("服务地址（Jev 标准接口）", draft!!.url, "例如 https://你的服务器，结尾有没有 /v1 都可以") else null
+            val model = if (p.custom) field("模型 ID", draft!!.model, "例如 jev-latest") else null
             val saved = prefs.jevKey(p)
             val key = field(
                 if (saved != null) "${p.label} 的 key：已保存（…${saved.takeLast(4)}）"
                 else "${p.label} 的 key：${if (p.custom) "没填（服务不需要 key 可以空着）" else "还没填"}",
-                "", if (saved != null) "输入新的 key 来替换" else "在这里粘贴 key", password = true)
+                draft?.key ?: "", if (saved != null) "输入新的 key 来替换" else "在这里粘贴 key", password = true)
+            draft?.let { d ->
+                for (f in listOfNotNull(url, model, key)) f.addTextChangedListener(object : android.text.TextWatcher {
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        d.url = url?.text?.toString() ?: d.url
+                        d.model = model?.text?.toString() ?: d.model
+                        d.key = key.text.toString()
+                    }
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                })
+            }
             jevBox.addView(err)
+            // the custom channel: a test that asks the service the standard question, with what is typed above
+            // (before saving), so a wrong address or a non-Jev service shows up here rather than mid-session
+            val probeResult = TextView(this).apply {
+                textSize = 13f; setLineSpacing(2 * dpx, 1f); setPadding(0, (6 * dpx).toInt(), 0, 0)
+                visibility = View.GONE
+            }
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
             row.addView(MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
                 text = "清除"; textSize = 16f; isEnabled = saved != null
                 setOnClickListener { prefs.setJevKey(p, null); renderJev() }
+            })
+            if (p.custom) row.addView(MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+                text = if (jevTesting) "测试中…" else "测试"; textSize = 16f; isEnabled = !jevTesting
+                setOnClickListener {
+                    val k = key.text.toString().trim()
+                    if (k.isNotEmpty() && !Jev.validKey(k)) {
+                        err.text = "key 里有空格、换行或特殊字符，请重新复制"; err.visibility = View.VISIBLE; return@setOnClickListener
+                    }
+                    // the same filling-in and checks 保存 does: a test of what would be saved
+                    val (whyUrl, full) = JevChannel.url(url?.text?.toString() ?: "")
+                    val (whyModel, id) = JevChannel.model(model?.text?.toString() ?: "")
+                    val why = whyUrl ?: whyModel
+                    if (why != null || full == null || id == null) {
+                        err.text = why ?: "地址格式不对"; err.visibility = View.VISIBLE; return@setOnClickListener
+                    }
+                    err.visibility = View.GONE
+                    // an empty key field: the saved key, the one a session would use
+                    val testKey = k.ifEmpty { saved }
+                    jevTesting = true; jevResult = null; renderJev()
+                    Thread {
+                        val probe = JevChannel.probe(full, id, testKey)
+                        main.post {
+                            if (isDestroyed) return@post
+                            jevTesting = false; jevResult = probe.detail
+                            renderJev()
+                        }
+                    }.apply { isDaemon = true }.start()
+                }
             })
             row.addView(MaterialButton(this).apply {
                 text = "保存"; textSize = 16f
@@ -921,10 +968,19 @@ class MainActivity : Activity() {
                         if (k.isEmpty()) return@setOnClickListener
                         prefs.setJevKey(p, k)
                     }
+                    // the boxes now show what is saved (an address filled in to /v1/systemone, a saved key's tail)
+                    jevDraft = null
                     key.setText(""); renderJev()
                 }
             })
             jevBox.addView(row)
+            jevBox.addView(probeResult)
+            // the verdict of the last test, shown once by this render (like the LLM API's test result)
+            jevResult?.also { jevResult = null }?.let {
+                probeResult.text = it
+                probeResult.setTextColor(getColor(if (it.startsWith("✓")) R.color.ok else R.color.err))
+                probeResult.visibility = View.VISIBLE
+            }
             jevBox.addView(hint(if (p.custom)
                 "填自己的 Jev 兼容服务（标准接口：POST 到 …/v1/systemone）。key 没填就不发 Authorization 头。只发送识别出的文字和译文，不发送声音。"
                 else "只发送识别出的文字和译文，不发送声音。key 加密保存在这台手机上，不会写进使用记录。"))
@@ -936,6 +992,10 @@ class MainActivity : Activity() {
 
     /** The running BYOK test, so a second tap, a new render or leaving the screen does not show a stale result. */
     @Volatile private var byokTest: ByokTranslator? = null
+
+    /** The custom Jev channel's test in flight (the button reads 测试中…) and its last verdict, shown once. */
+    @Volatile private var jevTesting = false
+    private var jevResult: String? = null
 
     /** BYOK: the user's OpenAI-compatible service; URL, key, model id and a test that also finds the thinking switch. */
     private fun renderByok(box: LinearLayout, running: Boolean) {
@@ -1095,6 +1155,10 @@ class MainActivity : Activity() {
         var userAgent: String? = null; var headers: List<Pair<String, String>>? = null
     }
     private var byokDraft: ByokDraft? = null
+
+    /** What the custom Jev channel's boxes hold before 保存: a test re-renders this screen, so it cannot live in it. */
+    private class JevDraft(var url: String, var model: String, var key: String)
+    private var jevDraft: JevDraft? = null
 
     /**
      * 高级设置 of the LLM API: the User-Agent (empty = ours) and extra request headers, one row of two boxes each. 好
@@ -1665,7 +1729,7 @@ class MainActivity : Activity() {
         const val REQ_PERM_ONLY = 3  // "去开启" in the permission list: grant only, never start
         const val LOGS_BEFORE_SCROLL = 5
         /** where the project lives (set by the author; the repository may not be public yet) */
-        const val REPO_URL = "https://github.com/KorenKrita/simul-subtitle"
+        const val REPO_URL = "https://github.com/yuwanyuan/simul-subtitle-multi"
         /** Settings categories: the list shown for each, and its tab label. */
         val TABS: List<Pair<Int, String>> = listOf(R.id.tabCaption to "字幕", R.id.tabTranslate to "翻译", R.id.tabPage to "页面", R.id.tabRecords to "记录", R.id.tabAbout to "关于")
     }

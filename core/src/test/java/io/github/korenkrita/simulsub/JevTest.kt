@@ -381,6 +381,29 @@ class JevTest {
     }
 
     @Test
+    fun aProbeTellsWhetherTheChannelAnswersAsJev() {
+        reply = { 200 to """{"answers":{"x":{"type":"noul","noul":0.9}}}""" }
+        val ok = JevChannel.probe("http://127.0.0.1:$port/v1/systemone", "jev-mine", "sk-mine")
+        assertTrue(ok.detail, ok.ok)
+        assertEquals("Bearer sk-mine", lastAuth.get())
+        assertEquals("jev-mine", (Json.parse(lastBody.get()!!) as Map<*, *>)["model"])
+        // the key is optional: without one no Authorization header goes out, and the probe still passes
+        assertTrue(JevChannel.probe("http://127.0.0.1:$port/v1/systemone", "jev-mine").ok)
+        assertNull(lastAuth.get())
+        // a 401: the address answers, the key does not
+        reply = { 401 to """{"error":{"message":"no"}}""" }
+        val refused = JevChannel.probe("http://127.0.0.1:$port/v1/systemone", "jev-mine", "sk-mine")
+        assertFalse(refused.detail, refused.ok); assertTrue(refused.detail, refused.detail.contains("401"))
+        // 200 with an OpenAI-shaped body: something answers there, but not a Jev service
+        reply = { 200 to """{"choices":[{"message":{"content":"hi"}}]}""" }
+        val wrong = JevChannel.probe("http://127.0.0.1:$port/v1/systemone", "jev-mine")
+        assertFalse(wrong.detail, wrong.ok); assertTrue(wrong.detail, wrong.detail.contains("不是 Jev"))
+        // nothing listening: a connection failure reported as one, never thrown
+        val dead = JevChannel.probe("http://127.0.0.1:1/v1/systemone", "jev-mine", deadlineMs = 2_000)
+        assertFalse(dead.detail, dead.ok); assertTrue(dead.detail, dead.detail.contains("连不上"))
+    }
+
+    @Test
     fun questionsFollowTheSessionLanguagesAndJapaneseToChineseKeepsTheTunedWording() {
         assertSame(Jev.UNFINISHED, Jev.unfinishedQuestion(Lang.JA))
         assertSame(Jev.MISTRANSLATION, Jev.mistranslationQuestion(Lang.JA, Target.ZH))

@@ -56,7 +56,9 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 
 private val prefs get() = Prefs.prefs
-private const val REPO = "https://github.com/KorenKrita/simul-subtitle"
+private const val REPO = "https://github.com/yuwanyuan/simul-subtitle-multi"
+/** The original project this fork follows: shown in 关于, never used for downloads or updates. */
+private const val UPSTREAM = "https://github.com/KorenKrita/simul-subtitle"
 
 private fun open(url: String) = runCatching { Desktop.getDesktop().browse(URI(url)) }
 private fun reveal(f: File) = runCatching {
@@ -464,6 +466,9 @@ private fun Scenes() {
 /** the running BYOK connection test, so a second click or a new screen does not show a stale result */
 private val byokTest = mutableStateOf<ByokTranslator?>(null)
 private val byokResult = mutableStateOf<String?>(null)
+/** the custom Jev channel's test in flight and its last verdict, shown once (like the LLM API's test) */
+private val jevTesting = mutableStateOf(false)
+private val jevResult = mutableStateOf<String?>(null)
 
 @Composable
 private fun TranslateTab() {
@@ -516,6 +521,28 @@ private fun TranslateTab() {
                     err?.let { Text(it, color = C.err, fontSize = 13.sp) }
                     Grow()
                     TextBtn("清除", enabled = saved != null) { if (!prefs.setJevKey(p, null)) err = "没能从钥匙串删掉 key，请再试一次" }
+                    // the custom channel: one real call with what is typed above (before saving), so a wrong address
+                    // or a service that is not Jev's shows up here instead of mid-session
+                    if (p.custom) Btn(if (jevTesting.value) "测试中…" else "测试", enabled = !jevTesting.value) {
+                        val k = input.trim()
+                        val (whyUrl, full) = JevChannel.url(url)
+                        val (whyModel, id) = JevChannel.model(model)
+                        val why = whyUrl ?: whyModel
+                        when {
+                            k.isNotEmpty() && !Jev.validKey(k) -> err = "key 里有空格、换行或特殊字符，请重新复制"
+                            why != null || full == null || id == null -> err = why ?: "地址格式不对"
+                            else -> {
+                                err = null
+                                // an empty key field: the saved key, the one a session would use
+                                val testKey = k.ifEmpty { saved }
+                                jevTesting.value = true; jevResult.value = null
+                                Thread {
+                                    val probe = JevChannel.probe(full, id, testKey)
+                                    java.awt.EventQueue.invokeLater { jevTesting.value = false; jevResult.value = probe.detail }
+                                }.apply { isDaemon = true }.start()
+                            }
+                        }
+                    }
                     Btn("保存", primary = true) {
                         val k = input.trim()
                         when {
@@ -539,8 +566,9 @@ private fun TranslateTab() {
                         }
                     }
                 }
-                Hint(if (p.custom) "填自己的 Jev 兼容服务（标准接口：POST 到 …/v1/systemone）。key 没填就不发 Authorization 头。只发送识别出的文字和译文，不发送声音。"
-                    else "只发送识别出的文字和译文，不发送声音。key ${if (isWindows) "加密保存在这台电脑上，只有你的 Windows 账户能读出" else "保存在这台 Mac 的钥匙串里"}，不会写进使用记录。")
+                var probe by jevResult
+                Hint(probe ?: if (p.custom) "填自己的 Jev 兼容服务（标准接口：POST 到 …/v1/systemone）。key 没填就不发 Authorization 头。「测试」发一次真实请求，先用它确认连得上再开始字幕。只发送识别出的文字和译文，不发送声音。"
+                    else "只发送识别出的文字和译文，不发送声音。key ${if (isWindows) "加密保存在这台电脑上，只有你的 Windows 账户能读出" else "保存在这台 Mac 的钥匙串里"}，不会写进使用记录。", if (probe?.startsWith("✓") == true) C.ok else if (probe != null) C.err else C.text2)
             }
         }
     }
@@ -849,6 +877,7 @@ private fun AboutTab() {
             else -> {}
         }
         Hint(REPO)
+        Hint("本 App 是「同传字幕」的 multi 分支，基于原作者 KorenKrita 的项目二次开发（多语言识别支持）。原项目：$UPSTREAM")
         Hint("语音识别用的是 ReazonSpeech 模型和 Silero VAD（通过 sherpa-onnx 在电脑上运行，模型已经装在 App 里）。感谢这些项目。")
     }
 }

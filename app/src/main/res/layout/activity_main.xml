@@ -757,7 +757,14 @@
                         <TextView
                             style="@style/RowSub"
                             android:paddingHorizontal="14dp"
-                            android:text="https://github.com/KorenKrita/simul-subtitle"
+                            android:text="https://github.com/yuwanyuan/simul-subtitle-multi"
+                            android:textIsSelectable="true" />
+
+                        <TextView
+                            style="@style/RowSub"
+                            android:paddingHorizontal="14dp"
+                            android:paddingTop="10dp"
+                            android:text="本 App 是「同传字幕（SimulSub）」的 multi 分支，基于原作者 KorenKrita 的项目二次开发（多语言识别支持）。原项目：https://github.com/KorenKrita/simul-subtitle"
                             android:textIsSelectable="true" />
 
                         <TextView
