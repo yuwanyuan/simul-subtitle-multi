@@ -20,12 +20,14 @@ class AsrCatalogTest {
         assertEquals("2026-10-19", parsed.revision)
         val builtins = AsrModels.BUILTIN_CATALOG.associateBy { it.id }
         assertEquals(builtins.keys, parsed.models.map { it.id }.toSet())
+        assertTrue(parsed.models.first { it.id == "builtin" }.preferred) // the row's 首选 mark, from the file
         for (m in parsed.models) {
             val b = builtins.getValue(m.id)
             assertEquals(b.label, m.label)
             assertEquals(b.summary, m.summary)
             assertEquals(b.streaming, m.streaming)
             assertEquals(b.origin, m.origin)
+            assertEquals(b.preferred, m.preferred)
             // what ready() compares: unchanged ids, file names and byte counts mean nothing is re-downloaded
             assertEquals(b.files.map { it.local }, m.files.map { it.local })
             assertEquals(b.files.map { it.bytes }, m.files.map { it.bytes })

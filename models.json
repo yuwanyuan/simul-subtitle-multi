@@ -45,7 +45,8 @@
           "bytes": 26631,
           "sha256": "144f8a4f639373a1bdf7eabb2437482ef64b0cc5db24ad27cce65f293e4faa24"
         }
-      ]
+      ],
+      "preferred": true
     },
     {
       "id": "ms-lingualive-multilingual",

@@ -26,6 +26,9 @@ class AsrModelDef(
     /** the model's own name where it lives (owner/repository on Hugging Face / ModelScope), shown on the download
      *  rows: the [label] is ours and friendly, this is what the model is called upstream and what lands on disk */
     val origin: String = "",
+    /** the manifest's 「首选」 mark (the row's label carries it): a note for the user — the list order, which is the
+     *  manifest's order, is what still decides [firstReady]'s fallback */
+    val preferred: Boolean = false,
 ) {
     class FileDef(val local: String, val urls: List<String>, val bytes: Long, val sha256: String?)
 
@@ -79,6 +82,7 @@ object AsrModels {
                     26_631, "144f8a4f639373a1bdf7eabb2437482ef64b0cc5db24ad27cce65f293e4faa24"),
             ),
             origin = "csukuangfj/reazonspeech-k2-v2-ja-en",
+            preferred = true, // the model the app was born with: the same mark the hosted manifest carries
         ),
         AsrModelDef(
             "ms-lingualive-multilingual", "多语种流式模型（LinguaLive）",
