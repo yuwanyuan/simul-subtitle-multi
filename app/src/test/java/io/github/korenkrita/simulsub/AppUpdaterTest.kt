@@ -16,6 +16,13 @@ class AppUpdaterTest {
         assertEquals(release.sha256, UpdateRelease.parse(JSONObject(release.json()).put("sha256", "A".repeat(64)).toString()).sha256)
     }
 
+    @Test fun theForksOwnVersionShapeParses() {
+        // "上游版号-multi.<本地号>" is what this fork's releases carry (AGENTS.md 版本号); its apkUrl follows the name
+        val mine = release.copy(versionName = "1.0.7-multi.1",
+            apkUrl = "${UpdateRelease.REPO}/releases/download/v1.0.7-multi.1/simul-subtitle-v1.0.7-multi.1.apk")
+        assertEquals(mine, UpdateRelease.parse(mine.json()))
+    }
+
     @Test fun onlyHigherVersionCodeCounts() {
         assertTrue(release.isNewer(3))
         assertFalse(release.isNewer(4))
@@ -58,6 +65,7 @@ class AppUpdaterTest {
         for ((key, value) in listOf(
             "versionCode" to 0, "versionCode" to 4.5, "versionCode" to 2147483648L,
             "versionName" to "../0.4", "versionName" to "0.4-beta", "versionName" to "0.5",
+            "versionName" to "1.0.7-multi", "versionName" to "1.0.7-multi.x", "versionName" to "1.0.7-multi1",
             "size" to 0, "size" to 200_000_001L, "size" to 1.5,
             "sha256" to "bad", "apkUrl" to "http://github.com/file.apk",
             "apkUrl" to "https://example.com/file.apk",

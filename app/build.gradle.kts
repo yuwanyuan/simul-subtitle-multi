@@ -15,8 +15,10 @@ android {
         applicationId = "io.github.yuwanyuan.simulsub"
         minSdk = 29 // AudioPlaybackCapture
         targetSdk = 35
-        versionCode = 29
-        versionName = "1.0.9"
+        versionCode = 27
+        // The fork's own scheme (AGENTS.md 版本号): the upstream version it follows, then -multi.<this fork's own
+        // release number>, counted from 1 and reset when the upstream part changes.
+        versionName = "1.0.7-multi.1"
         ndk { abiFilters += "arm64-v8a" }
     }
 
