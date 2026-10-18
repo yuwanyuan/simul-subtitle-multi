@@ -63,7 +63,7 @@ object AsrModels {
         "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06/resolve/887db3d083240198c2d2b99fb66cfcfe6948ced8/",
     )
 
-    val CATALOG = listOf(
+    internal val BUILTIN_CATALOG = listOf(
         AsrModelDef(
             BUILTIN, "日英模型（ReazonSpeech）",
             "日、英 · 约 77 MB · HuggingFace（镜像下载）· 非流式 zipformer · 原本装在 App 里的那个",
@@ -112,6 +112,13 @@ object AsrModels {
             origin = "csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06",
         ),
     )
+
+    /**
+     * The models the page offers: [AsrCatalog]'s fetched list once there is one — the file is the truth and its
+     * order is the page's — else [BUILTIN_CATALOG]. Ids, file names and byte counts are what [ready] compares, so a
+     * fetched entry that keeps them keeps the files already on the phone (an edited URL never re-downloads).
+     */
+    val CATALOG: List<AsrModelDef> get() = AsrCatalog.withRemotes(BUILTIN_CATALOG)
 
     fun def(id: String): AsrModelDef? = CATALOG.firstOrNull { it.id == id }
 
