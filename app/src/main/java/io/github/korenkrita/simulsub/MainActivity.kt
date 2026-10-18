@@ -516,7 +516,7 @@ class MainActivity : Activity() {
             val now = SessionLog.list(getExternalFilesDir(null)!!).map { it.name } to SessionLog.activeFiles()
             if (now != listedLogs) renderLogs()
             // a settled download / import that happened with the model page closed, and the progress of one open
-            if (inModel && inSettings && (modelsDirty || AsrModels.downloading != null)) { modelsDirty = false; renderModels() }
+            if (inModel && inSettings && (modelsDirty || AsrModels.downloading != null || AsrModels.importing)) { modelsDirty = false; renderModels() }
             main.postDelayed(this, 800)
         }
     }
@@ -1471,7 +1471,13 @@ class MainActivity : Activity() {
         val custom = AsrModels.custom(this)
         if (custom == null) {
             box.addView(hint("用自己的 sherpa-onnx transducer 模型：识别不出的语言、自己训练的模型都可以。需要四个文件：encoder、decoder、joiner 和 tokens.txt。"))
-            modelRow(box, rowTexts("从手机导入", "在下面的窗口里选中这四个文件"), listOf("选文件" to { pickModelFiles() }))
+            if (AsrModels.importing)
+                modelRow(box, rowTexts("从手机导入", "正在导入（复制四个文件并检查）…"), listOf("导入中…" to null))
+            else
+                modelRow(box, rowTexts("从手机导入", "在下面的窗口里选中这四个文件"), listOf("选文件" to { pickModelFiles() }))
+        } else if (AsrModels.importing) {
+            // its files are being replaced right now: nothing on this row is safe to press (the import re-renders it)
+            modelRow(box, rowTexts("自定义模型", "正在导入新模型（复制四个文件并检查）…"), listOf("导入中…" to null))
         } else {
             val streamName = if (custom.kind == AsrModels.KIND_STREAMING) "流式" else "非流式"
             modelRow(box, rowTexts("自定义模型", "$streamName · ${custom.files.values.joinToString("、")}"), listOf(
@@ -1521,8 +1527,11 @@ class MainActivity : Activity() {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            // the title rides on the picker itself: wrapped in a chooser, some ROMs dropped EXTRA_ALLOW_MULTIPLE and
+            // the four files could only be picked one at a time, which the import cannot use
+            putExtra(Intent.EXTRA_TITLE, "选模型的四个文件（encoder / decoder / joiner / tokens）")
         }
-        try { startActivityForResult(Intent.createChooser(i, "选模型的四个文件（encoder / decoder / joiner / tokens）"), REQ_IMPORT) }
+        try { startActivityForResult(i, REQ_IMPORT) }
         catch (_: android.content.ActivityNotFoundException) { Toast.makeText(this, "这个手机没有能选文件的 App", Toast.LENGTH_LONG).show() }
     }
 
