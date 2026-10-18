@@ -170,6 +170,8 @@ object AsrCatalog {
         val summary = o.optString("summary", "").trim().take(300)
         val streaming = o.getBoolean("streaming")
         val origin = o.optString("origin", "").trim().take(200)
+        // optional: the 「首选」 mark the row shows (a note to the user; the list order stays what decides fallback)
+        val preferred = o.optBoolean("preferred", false)
         val fa = o.getJSONArray("files")
         require(fa.length() == 4) { "「$id」必须给齐四个文件（encoder / decoder / joiner / tokens）" }
         val byRole = LinkedHashMap<String, AsrModelDef.FileDef>()
@@ -193,7 +195,7 @@ object AsrCatalog {
             }
         }
         // the engine reads the four in role order, wherever the file happens to list them
-        return AsrModelDef(id, label, summary, streaming, AsrModels.ROLES.map { byRole[it]!! }, origin)
+        return AsrModelDef(id, label, summary, streaming, AsrModels.ROLES.map { byRole[it]!! }, origin, preferred)
     }
 
     private class CatalogHttp(val code: Int) : IOException("HTTP $code")

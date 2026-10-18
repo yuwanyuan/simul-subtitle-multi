@@ -1419,9 +1419,9 @@ class MainActivity : Activity() {
         val err = AsrCatalog.lastError
         return when {
             AsrCatalog.fetching -> "模型清单：正在获取…"
-            err != null -> "模型清单：获取失败（${err.take(60)}），仍用${if (AsrCatalog.usingFetched) "上次获取的清单" else "内置清单"}（点一下重试）"
-            AsrCatalog.usingFetched -> "模型清单：更新于 ${AsrCatalog.revision ?: "未标注"}（点一下重新获取）"
-            else -> "模型清单：用的是内置清单（点一下获取最新）"
+            err != null -> "模型清单：获取失败（${err.take(60)}），仍用${if (AsrCatalog.usingFetched) "上次获取的清单" else "内置清单"}"
+            AsrCatalog.usingFetched -> "模型清单：更新于 ${AsrCatalog.revision ?: "未标注"}"
+            else -> "模型清单：用的是内置清单"
         }
     }
 
@@ -1432,11 +1432,13 @@ class MainActivity : Activity() {
         val sel = AsrModels.selected(this)
         val dl = AsrModels.downloading
         var box = group(root, "可下载的模型")
-        box.addView(hint("识别模型不装在 App 里了，从这里一次下载，存在这台手机上，以后离线也能用。第一个是原来带在 App 里的日英模型。下载好会直接选用。"))
-        // where the list itself came from, and the manual retry (the auto one is at most hourly, on page open)
-        box.addView(hint(catalogLine()).apply {
-            setOnClickListener { AsrCatalog.refresh(this@MainActivity) { onModelsChanged() } }
-        })
+        // where the list came from, and an obvious way to fetch it again (the automatic one is at most hourly)
+        val listLine = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        listLine.addView(hint(catalogLine()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        listLine.addView(pillButton(if (AsrCatalog.fetching) "获取中…" else "刷新清单") {
+            AsrCatalog.refresh(this) { onModelsChanged() }
+        }.apply { isEnabled = !AsrCatalog.fetching })
+        box.addView(listLine)
         for (def in AsrModels.CATALOG) {
             val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             if (dl != null && dl.def.id == def.id) {
@@ -1455,12 +1457,17 @@ class MainActivity : Activity() {
                     setIndicatorColor(getColor(R.color.brand)); setTrackColor(getColor(R.color.pill))
                 }
                 texts.addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * dpx).toInt() })
-                modelRow(box, texts, listOf("取消" to { AsrModels.cancelDownload() }))
+                val acts = mutableListOf<Pair<String, (() -> Unit)?>>()
+                if (def.preferred) acts += "首选" to null // the manifest's mark, as on an idle row
+                acts += "取消" to { AsrModels.cancelDownload() }
+                modelRow(box, texts, acts)
                 continue
             }
             val ready = AsrModels.ready(this, def)
             val used = sel == def.id && ready
             val actions = mutableListOf<Pair<String, (() -> Unit)?>>()
+            // the manifest's 「首选」 mark: a green status pill like 使用中, not a button
+            if (def.preferred) actions += "首选" to null
             // only a ready model can be used (and deleted): the picker of an undownloaded one is 下载并使用
             if (ready) actions += if (used) "使用中" to null else "使用" to {
                 AsrModels.select(this, def.id); onModelsChanged()
