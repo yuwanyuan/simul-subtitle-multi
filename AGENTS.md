@@ -71,9 +71,51 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 可下载模型的列表是**数据文件**，不再写死在代码里（代码入口 `AsrCatalog.kt`，与应用内更新的「拉清单 + 多源回退」同一套思路）：
 
 - **位置**：`gitee.com/ywyyuwanyuan/simul-subtitle-multi` 根目录 `models.json`（**主**，网页上直接编辑，提交到 `main` 即生效）；本仓库（GitHub fork）根目录的同名文件是**备用源**——改完 gitee 记得把同一份文件也提交过来，否则备用源落后。
-- **App 行为**：打开「设置 › 字幕 › 语音识别模型」时最多每小时拉一次（失败后 5 分钟内不重试；页面上的清单状态行可以直接点，强制刷新）。回退链：gitee raw → raw.githubusercontent（fork 的 `my-mod`）→ gh-proxy.com / gh.llkk.cc。成功后清单**原文**缓存到 `Android/data/<包名>/files/asr-catalog.json`（约 7KB，原地覆盖写、不会累积）；获取失败或校验不过时用缓存，再没有就用代码里的 `AsrModels.BUILTIN_CATALOG`（清单里没有 `builtin` 条目时它也会被补上，默认模型永远可下载）。
-- **校验规则**（编辑时别踩；违反一条整份清单会被弃用并在页面上报原因）：`schemaVersion` 必须为 1；`id` 只能是小写字母/数字/`._-` 且不能是 `custom`；每个模型恰好四个文件、按文件名前缀认出 encoder / decoder / joiner / tokens 四个角色各一个；`bytes > 0`；**每个文件的 `sha256` 必填**（64 位小写十六进制，用 `sha256sum` 对实际文件算）；下载地址必须 `https://` 开头、每条 1–4 个。
-- **可选的 `preferred: true`**：给该模型在列表行加一个绿色「首选」小标签（纯提示，不改列表顺序、不影响任何行为——`firstReady` 的回退顺序始终是文件里的条目顺序）。目前标在 `builtin`（日英模型）上。
+- **App 行为**：打开「设置 › 字幕 › 语音识别模型」时最多每小时拉一次（失败后 5 分钟内不重试；页面上的「刷新清单」按钮随时强制刷新）。回退链：gitee raw → raw.githubusercontent（fork 的 `my-mod`）→ gh-proxy.com / gh.llkk.cc。成功后清单**原文**缓存到 `Android/data/<包名>/files/asr-catalog.json`（约 7KB，原地覆盖写、不会累积）；获取失败或校验不过时用缓存，再没有就用代码里的 `AsrModels.BUILTIN_CATALOG`（清单里没有 `builtin` 条目时它也会被补上，默认模型永远可下载）。
+- **清单结构**（编辑时对照；`AsrCatalog.parse` 只认这一版，违反任何一条整份清单会被弃用并在页面上报原因）：
+
+  ```json
+  {
+    "schemaVersion": 1,
+    "revision": "2026-10-19",
+    "models": [
+      {
+        "id": "hf-kroko-de",
+        "label": "德语流式模型（Kroko）",
+        "summary": "德语 · 约 71 MB · HuggingFace（镜像下载）· 流式 zipformer",
+        "streaming": true,
+        "origin": "csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06",
+        "preferred": false,
+        "files": [
+          { "local": "encoder.onnx", "bytes": 70091557, "sha256": "<64 位小写 hex>",
+            "urls": ["https://hf-mirror.com/…/encoder.onnx", "https://huggingface.co/…/encoder.onnx"] },
+          { "local": "decoder.onnx", "bytes": 617489, "sha256": "<…>", "urls": ["<…>"] },
+          { "local": "joiner.onnx",  "bytes": 336817, "sha256": "<…>", "urls": ["<…>"] },
+          { "local": "tokens.txt",   "bytes": 5606,   "sha256": "<…>", "urls": ["<…>"] }
+        ]
+      }
+    ]
+  }
+  ```
+
+  | 字段 | 必填 | 取值 | 说明 |
+  |---|---|---|---|
+  | `schemaVersion` | ✓ | 恒为 `1` | 加了不兼容字段才升版本 |
+  | `revision` |  | 字符串 ≤40 | 页面显示的「模型清单：更新于 …」，改完顺手写上日期 |
+  | `models[]` | ✓ | 1–50 项 | **顺序 = 页面顺序 = `firstReady` 的回退顺序** |
+  | `id` | ✓ | `[a-z0-9][a-z0-9._-]{0,63}`，不能是 `custom`、同一清单里不重复 | **永不变**：改了就等于换模型，已下载的会被要求重下 |
+  | `label` | ✓ | 字符串 ≤120 | 列表行标题 |
+  | `summary` |  | 字符串 ≤300 | 列表行第二行（语言 / 体积 / 来源 / 引擎）；「· 现在使用」等后缀由页面追加 |
+  | `streaming` | ✓ | true / false | 引擎：true=流式 zipformer（`StreamingSherpaAsr`），false=离线 transducer（`FileTransducerAsr`） |
+  | `origin` |  | 字符串 ≤200 | 「原名：」一行，模型站上的 owner/repo |
+  | `preferred` |  | true / false | true 时列表行加绿色「首选」小标签（纯提示，不改顺序与行为）；目前标在 `builtin`（日英模型）上 |
+  | `files[]` | ✓ | 恰好 4 项 | 角色按**文件名前缀**认（encoder / decoder / joiner / tokens）各一个，顺序随意（解析后按角色排好） |
+  | `files[].local` | ✓ | 文件名 ≤120 | 落盘的文件名；不含 `/`、`\`，不以 `.` 开头 |
+  | `files[].bytes` | ✓ | 整数 >0 | 字节数；也是「已下载」判据之一 |
+  | `files[].sha256` | ✓ | 64 位小写 hex | 下载后逐字节校验（`sha256sum <文件>` 得来） |
+  | `files[].urls` | ✓ | 1–4 条字符串 | 下载地址，镜像按序回退；必须 `https://` 开头、每条 ≤500 字符 |
+
+  文件用 UTF-8、LF 保存；填错的字节数或哈希会让下载在完成校验时被拒。
 - **改清单不会让已下载的模型重下**：下载状态按「模型 id + 文件本地名 + 字节数」判定（`AsrModels.ready`），改 URL、文案、条目顺序都无影响；只有改了字节数或 id 才视为新文件。`AsrCatalogTest` 用冻结的 v1 清单把这条等价性锁进了测试。
 - **能力边界**：清单只决定「列表里有什么、从哪下」，不能带来新引擎——App 只认 `streaming`（zipformer → `StreamingSherpaAsr`）与 `streaming=false`（离线 transducer → `FileTransducerAsr`）两种；别的模型类型放进来跑不了。
 
