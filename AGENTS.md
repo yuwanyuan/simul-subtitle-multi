@@ -49,7 +49,7 @@ gh run download -R yuwanyuan/simul-subtitle-multi <run-id> -n SimulSub-android-a
 gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitle-multi
 ```
 
-版本号引用链：`versionName`/`versionCode` 定义在 `app/build.gradle.kts`，`:desktop` 用正则从该文件读取。**不要随手改版本号**——上游用 `Version X.Y` 格式的独立提交管理版本，本地如果也去动它会成为每次同步的冲突源；本地构建想区分时，用 tag 或分支名，不改 `versionCode`。
+版本号：`versionName`/`versionCode` 定义在 `app/build.gradle.kts`，`:desktop` 用正则从该文件读取（jpackage 的 `CFBundleVersion` 另有 `1.<versionCode>`，见 docs/build.md）。本 fork 的 `versionName` 是**「上游版号 + `-multi.<本地号>`」**：同步上游后前半段换成上游版号，`-multi.` 后面的数字每次 fork 发布 +1，上游版号一变就重新从 1 数（`1.0.7-multi.3` → 上游 1.0.8 → `1.0.8-multi.1`）。上游仍用 `Version X.Y` 的独立提交改版本号，同步时把它接上后缀即可。`versionCode` **保持上游的 27 不动**，所以应用内「自动更新」不会自动触发（见下文已知坑 1：`isNewer` 比的是 versionCode）；要让 fork 的 Release 能触发它，得让 versionCode 高于已装版本（例如 `上游版号×100 + 本地号`），那是一次刻意的决定，改前先定。`UpdateRelease.parse` 已接受 `-multi.<n>` 形状的 versionName（拒绝带路径字符的形状）；发 Release 时 tag 与附件名要和它一致：`v<versionName>`、附件 `simul-subtitle-v<versionName>.apk`（`gh release create` 前把 CI 产物改名）。
 
 签名：`:app` 打包（debug 与 release 同配置）需要 `keystore/fork-debug.keystore`，缺失时 `validateSigningDebug` 直接失败。本机已有一份；新克隆要么向作者取文件，要么用 `keytool -genkeypair -keystore keystore/fork-debug.keystore -storetype PKCS12 -storepass simulsub-debug -alias fork-debug -keyalg RSA -keysize 2048 -validity 36500` 自建一把（自建的签名与发布包不同，两者不能互相覆盖升级）。
 
