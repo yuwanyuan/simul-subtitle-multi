@@ -422,7 +422,6 @@ class JevTest {
         assertEquals(false to "还没填模型", Jev.test(JevCustom(JevProtocol.SYSTEMONE, "http://h", ""), ""))
         assertEquals(false to "地址格式不对", Jev.test(JevCustom(JevProtocol.SYSTEMONE, "http://", "m"), ""))
     }
-
     @Test
     fun questionsFollowTheSessionLanguagesAndJapaneseToChineseKeepsTheTunedWording() {
         assertSame(Jev.UNFINISHED, Jev.unfinishedQuestion(Lang.JA))

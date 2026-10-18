@@ -56,7 +56,9 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 
 private val prefs get() = Prefs.prefs
-private const val REPO = "https://github.com/KorenKrita/simul-subtitle"
+private const val REPO = "https://github.com/yuwanyuan/simul-subtitle-multi"
+/** The original project this fork follows: shown in 关于, never used for downloads or updates. */
+private const val UPSTREAM = "https://github.com/KorenKrita/simul-subtitle"
 
 private fun open(url: String) = runCatching { Desktop.getDesktop().browse(URI(url)) }
 private fun reveal(f: File) = runCatching {
@@ -942,6 +944,7 @@ private fun AboutTab() {
             else -> {}
         }
         Hint(REPO)
+        Hint("本 App 是「同传字幕」的 multi 分支，基于原作者 KorenKrita 的项目二次开发（多语言识别支持）。原项目：$UPSTREAM")
         Hint("语音识别用的是 ReazonSpeech 模型和 Silero VAD（通过 sherpa-onnx 在电脑上运行，模型已经装在 App 里）。感谢这些项目。")
     }
 }
