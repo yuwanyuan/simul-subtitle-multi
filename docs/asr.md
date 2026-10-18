@@ -6,8 +6,8 @@
 
 ### 关键实现细节
 
-- **体积与打包方式**：模型总计约 **77 MB**（`encoder` 70.9 MB + `decoder` 5.2 MB + `joiner` 1.0 MB + `tokens`），连同 **Silero VAD**（0.6 MB）直接随应用打包分发：
-  - **Android**：存放在 APK 的 `assets/models/` 下，构建时设置 `.onnx` 不压缩，由 `sherpa-onnx` 直接读取，无需首次启动解压。
+- **体积与打包方式**：模型总计约 **77 MB**（`encoder` 70.9 MB + `decoder` 5.2 MB + `joiner` 1.0 MB + `tokens`），**Silero VAD**（0.6 MB）随应用打包分发：
+  - **Android**：APK 只带 VAD（`assets/models/vad/`，构建时设置 `.onnx` 不压缩，由 `sherpa-onnx` 直接读取）。识别模型已移出 APK：在 App 内「设置 › 字幕 › 语音识别模型」下载（ReazonSpeech 是列表第一项，约 77 MB，下载后离线可用），或用四个文件导入自己的 sherpa-onnx 模型。官方上游版仍把模型打进 APK，本 fork 拆出以缩小安装包。
   - **桌面端（macOS / Windows）**：存放在应用自带资源目录的 `models/` 下。
 - **首尾静音填充**：送入识别前，音频前后各补 **0.3 s 静音**——实测若有效语音从第 0 个采样点直接开始，该模型容易吞掉句首第一个词。
 - **双语混识与语言选择**：该模型本身没有“指定识别语言”的参数，也不输出语种标签。用户在首页选择的「视频里说的是（日语 / 英语）」不改变底层声学识别，而是用于告知后续的翻译提示词与 Jev 判断当前原文语种。
