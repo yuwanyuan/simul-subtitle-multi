@@ -1,45 +1,40 @@
 package io.github.korenkrita.simulsub
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * [AsrCatalog]: the manifest the Gitee/GitHub copy serves parses into [AsrModelDef]s, and the frozen copy in the
- * test resources still matches [AsrModels.BUILTIN_CATALOG] where it must — the engine kind, the file names, the byte
- * counts (what [AsrModels.ready] compares) and the hashes. The wording is the manifest author's and is free to
- * change; a reworded entry that keeps those changes nothing on the phone.
+ * [AsrCatalog]: the manifest the Gitee/GitHub copy serves parses into [AsrModelDef]s, and the frozen v1 copy in the
+ * test resources still matches [AsrModels.BUILTIN_CATALOG] entry for entry — which is what keeps a model already
+ * downloaded downloaded ([AsrModels.ready] compares id, file names and byte counts, never a URL).
  */
 class AsrCatalogTest {
     private fun hosted(): String = checkNotNull(javaClass.getResourceAsStream("/models-hosted-v1.json")).use {
         it.readBytes().toString(Charsets.UTF_8)
     }
 
-    @Test fun `the hosted v1 manifest still matches the built-in definitions where it must`() {
+    @Test fun `the hosted v1 manifest still matches the built-in definitions file for file`() {
         val parsed = AsrCatalog.parse(hosted())
         assertEquals("2026-10-19", parsed.revision)
         val builtins = AsrModels.BUILTIN_CATALOG.associateBy { it.id }
         assertEquals(builtins.keys, parsed.models.map { it.id }.toSet())
+        assertTrue(parsed.models.first { it.id == "builtin" }.preferred) // the row's 首选 mark, from the file
         for (m in parsed.models) {
             val b = builtins.getValue(m.id)
-            // Wording (label/summary/origin/preferred) belongs to the manifest's author and changes without the app;
-            // a reworded entry keeping these means no re-download and the same engine as before.
+            assertEquals(b.label, m.label)
+            assertEquals(b.summary, m.summary)
             assertEquals(b.streaming, m.streaming)
+            assertEquals(b.origin, m.origin)
+            assertEquals(b.preferred, m.preferred)
             // what ready() compares: unchanged ids, file names and byte counts mean nothing is re-downloaded
             assertEquals(b.files.map { it.local }, m.files.map { it.local })
             assertEquals(b.files.map { it.bytes }, m.files.map { it.bytes })
             // the manifest may add a hash the code never had (Kroko): every fetched file is verified, none weaker
             for ((bf, mf) in b.files.zip(m.files)) if (bf.sha256 != null) assertEquals(bf.sha256, mf.sha256)
             assertTrue(m.files.all { it.sha256 != null })
-            assertTrue(m.label.isNotEmpty())
         }
-    }
-
-    @Test fun `the preferred mark comes from the file and defaults to off`() {
-        assertTrue(AsrCatalog.parse(manifest(model(preferred = true))).models.single().preferred)
-        assertFalse(AsrCatalog.parse(manifest(model())).models.single().preferred)
     }
 
     @Test fun `the file's order is the page's order, the code's builtin is the safety net`() {
@@ -100,7 +95,6 @@ class AsrCatalogTest {
         id: String = "m-1",
         label: String = "测试模型",
         streaming: Boolean = true,
-        preferred: Boolean = false,
         names: List<String> = listOf("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"),
         bytes: Long = 1000,
         sha: String? = "0".repeat(64),
@@ -109,7 +103,7 @@ class AsrCatalogTest {
         val files = names.joinToString(",") { n ->
             """{"local":"$n","bytes":$bytes,"sha256":${if (sha == null) "null" else "\"$sha\""},"urls":["$url$n"]}"""
         }
-        return """{"id":"$id","label":"$label","summary":"测试用的条目","streaming":$streaming,"preferred":$preferred,"origin":"me/test","files":[$files]}"""
+        return """{"id":"$id","label":"$label","summary":"测试用的条目","streaming":$streaming,"origin":"me/test","files":[$files]}"""
     }
 
     private fun manifest(vararg models: String) =
