@@ -66,6 +66,16 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 1. **应用内更新检查**：`AppUpdater.kt` 的清单源**已改指向本 fork** `yuwanyuan/simul-subtitle-multi` 的 Release（改动集中在一个常量 `REPO`，与上游的冲突面只有那一行）。**首个正式版 `v1.0.7-multi.1` 已于 2026-10-18 发布**：tag `v<versionName>`、附件为改名成 `simul-subtitle-v<versionName>.apk` 的 APK 加同一份内容的 `update.json`，release 标记 `--latest`。发后续版本的流程沿用 docs/build.md「正式版发布步骤」的 Android 部分：版本号独立提交 → 构建并核对签名与版本号 → `uv run python` 生成 `update.json`（脚本见 docs/build.md，URL 换成 fork 仓库；`notes` 与 release 正文同源）→ `gh release create v<versionName> --target <my-mod 的 sha> --latest` 一次传齐 APK 与 `update.json` → 回读三条清单链路核对 sha256 与字段。注意 `UpdateRelease.parse` 要求清单里的 apkUrl 与文件名匹配 `REPO` 的 release 路径形状；`versionCode` 用 fork 的公式（上游 versionCode × 100 + 本地号，见上文「版本号」），旧安装（27 起）能正常收到更新弹窗。**绝不要把这个常量改回上游地址**：那样它会把官方 APK 当更新下载，而本 fork 的 applicationId 不同，装下去是第二个 App 而不是升级。
 2. **签名与包名**：本 fork 的**所有构建共用一把固定 keystore**：`keystore/fork-debug.keystore`，`keystore/` 在 `.gitignore` 里、不进仓库——本机就是仓库目录下这个文件，CI 构建前从仓库 Secret `SIMULSUB_KEYSTORE_B64`（base64）还原到同一路径，`app/build.gradle.kts` 的 debug signingConfig 显式指向它（release 沿用 debug 配置）。证书 SHA-256 指纹 `7a:9a:ed:10:38:8e:3d:c8:01:c4:05:19:b1:84:e6:0b:29:32:e8:33:e3:99:0b:fc:92:5b:b5:c1:7d:de:70:22`。文件缺失时打包**报错**，而不是悄悄换一把 key——2026-10-17/18 的教训：CI 原用 `actions/cache` 缓存 `~/.android` 来固定签名，日志显示缓存每次"命中"，两次 CI 构建却签出不同证书（两天共出现三把 key，另一把是本机的 `~/.android/debug.keystore`），本地包与 CI 包互相覆盖安装报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。**换 key 是破坏性操作**（所有已装设备必须卸载重装，App 数据与已下载模型一起丢），只有刻意迁移才动，且要同步改这一节。本 fork 因此使用**自己的包名** `applicationId = io.github.yuwanyuan.simulsub`（在 `app/build.gradle.kts`）——与官方版并存安装互不干扰、互不覆盖；**`namespace`（代码包名）保持 `io.github.korenkrita.simulsub` 不变**：改 namespace 要动全部源文件，等于每次同步上游都制造大面积冲突，而 Manifest 的 FileProvider authority 用 `${applicationId}` 占位符，会自动跟随。数据与模型按 applicationId 隔离（换包名后手机上等于全新安装，模型要重新下载）。
 
+## 模型清单（models.json，2026-10-19 起）
+
+可下载模型的列表是**数据文件**，不再写死在代码里（代码入口 `AsrCatalog.kt`，与应用内更新的「拉清单 + 多源回退」同一套思路）：
+
+- **位置**：`gitee.com/ywyyuwanyuan/simul-subtitle-multi` 根目录 `models.json`（**主**，网页上直接编辑，提交到 `main` 即生效）；本仓库（GitHub fork）根目录的同名文件是**备用源**——改完 gitee 记得把同一份文件也提交过来，否则备用源落后。
+- **App 行为**：打开「设置 › 字幕 › 语音识别模型」时最多每小时拉一次（失败后 5 分钟内不重试；页面上的清单状态行可以直接点，强制刷新）。回退链：gitee raw → raw.githubusercontent（fork 的 `my-mod`）→ gh-proxy.com / gh.llkk.cc。成功后清单**原文**缓存到 `Android/data/<包名>/files/asr-catalog.json`（约 7KB，原地覆盖写、不会累积）；获取失败或校验不过时用缓存，再没有就用代码里的 `AsrModels.BUILTIN_CATALOG`（清单里没有 `builtin` 条目时它也会被补上，默认模型永远可下载）。
+- **校验规则**（编辑时别踩；违反一条整份清单会被弃用并在页面上报原因）：`schemaVersion` 必须为 1；`id` 只能是小写字母/数字/`._-` 且不能是 `custom`；每个模型恰好四个文件、按文件名前缀认出 encoder / decoder / joiner / tokens 四个角色各一个；`bytes > 0`；**每个文件的 `sha256` 必填**（64 位小写十六进制，用 `sha256sum` 对实际文件算）；下载地址必须 `https://` 开头、每条 1–4 个。
+- **改清单不会让已下载的模型重下**：下载状态按「模型 id + 文件本地名 + 字节数」判定（`AsrModels.ready`），改 URL、文案、条目顺序都无影响；只有改了字节数或 id 才视为新文件。`AsrCatalogTest` 用冻结的 v1 清单把这条等价性锁进了测试。
+- **能力边界**：清单只决定「列表里有什么、从哪下」，不能带来新引擎——App 只认 `streaming`（zipformer → `StreamingSherpaAsr`）与 `streaming=false`（离线 transducer → `FileTransducerAsr`）两种；别的模型类型放进来跑不了。
+
 ## 代码与修改规范（AI 协作硬规则）
 
 本代码库的风格特征：注释密度约 17%，每个字段与参数都有解释**为什么与实测依据**的 KDoc（例如 `Recognition.Companion` 记录"实测 すみません/そんな/まっすぐ/おじいさん 会在句首被吞"）；全库 0 个 `TODO`/`FIXME`；UI 文案为硬编码中文字符串（`strings.xml` 仅含 `app_name`）。对外行为由 `docs/architecture.md` 的数据流描述，由 `core/src/test/` 下的用例锁定。
