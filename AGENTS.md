@@ -1,53 +1,5 @@
 # 本地开发规范
 
-本仓库是 [KorenKrita/simul-subtitle](https://github.com/KorenKrita/simul-subtitle) 的 fork（创建于 2026-10-16）。本文档面向在本仓库内工作的人与 AI 编码助手，约定**本地改动、构建、测试与上游同步**的规则；项目本身的技术文档见 [docs/README.md](docs/README.md)。本文件为本地新增（fork 的"multi"部分），不进入上游 `docs/` 索引，也不回传上游。
-
----
-
-## 分支与远端
-
-| 名称 | 指向 | 用途 |
-|---|---|---|
-| `main` | 跟踪 `upstream/main` | 上游的**快进镜像**，只做 `merge --ff-only`，禁止提交任何内容 |
-| `my-mod` | 跟踪 `origin/my-mod` | 全部本地修改的唯一工作分支 |
-| `origin` | `yuwanyuan/simul-subtitle-multi` | 唯一可推送远端 |
-| `upstream` | `KorenKrita/simul-subtitle` | 只读。本账号无该仓库写权限（push 实测 403），任何改动都不回传上游 |
-
-防误推的三层保险（2026-10-17 起）：`remote.pushDefault=origin`（裸 `git push` 永远指向 fork）+ `remote.upstream.pushurl=no-push.invalid`（**显式** `git push upstream …` 在本机直接失败，fetch/pull 不受影响）+ 上游不授予本账号写权限（真到了 GitHub 也会 403）。改本地配置时别删这两项 config。
-
-仓库本地配置已固化：`remote.pushDefault=origin`（裸 `git push` 永远指向 fork）、`remote.upstream.pushurl=no-push.invalid`（显式推上游在本机直接失败）、`rerere.enabled=true`（复用已解决过的冲突）。上游只能 `fetch`/`merge`，永远不被 push。
-
-## 版本锚点
-
-改动与排查问题时以这些版本为基准；升级任何一个都意味着与上游产生大面积冲突，除非有充分理由并把理由写进提交正文：
-
-| 项 | 版本 |
-|---|---|
-| Gradle wrapper | 8.11.1 |
-| Android Gradle Plugin | 8.7.3 |
-| Kotlin / Kotlin Compose 插件 | 2.1.21 |
-| Compose Multiplatform | 1.8.2 |
-| sherpa-onnx（AAR / 桌面原生库） | 1.13.8 |
-| OkHttp / JUnit | 4.12.0 / 4.13.2 |
-| Android | compileSdk 35，minSdk 29（AudioPlaybackCapture 下限），仅 `arm64-v8a` |
-
-## 构建与测试
-
-```bash
-# 1. 拉取仓库不持有构建所需物：sherpa-onnx AAR 与 77 MB 离线模型，逐文件校验字节数与 SHA-256
-./setup.sh
-
-# 2. 编译（JDK 17 + Android SDK platforms;android-35、build-tools;34.0.0；无需 NDK）
-./gradlew -q :app:assembleRelease          # APK 约 90 MB：app/build/outputs/apk/release/
-./gradlew -q :desktop:run                  # 桌面端源码直跑（macOS 需先 tools/mac-capture/build.sh）
-
-# 3. 单元测试（:core 为纯 JVM，不依赖 Android SDK，是改动后最低限度的验证）
-./gradlew :core:test :app:testDebugUnitTest
-```
-
-事实要点：`minSdk 29`、`versionName`/`versionCode` 定义在 `app/build.gradle.kts`（当前 1.0.7 / 27），`:desktop` 用正则从该文件读取版本号，**两处引用链动一发牵全身**；`setup.sh` 只把 **VAD 模型**复制进 `app/src/main/assets/models/`，ASR 模型不再打进 APK——手机端在 设置 › 字幕 › 语音识别模型 里按需下载（`AsrModels.kt` 的目录与校验和），桌面端和工具仍从 `./models/` 读（`.onnx` 不压缩存放）。
-</think>文件比较长，我用文档级结构一次写完。现在写入根目录 `AGENTS.md`。<tool_call>Write<arg_key>content</arg_key><arg_value># 本地开发规范
-
 本仓库是 [KorenKrita/simul-subtitle](https://github.com/KorenKrita/simul-subtitle) 的 fork（创建于 2026-10-16）。本文档面向在本仓库内工作的人与 AI 编码助手，约定**本地改动、构建、测试与上游同步**的规则；项目本身的技术文档见 [docs/README.md](docs/README.md)。本文件为本地新增（fork 的 "multi" 部分），不进入上游 `docs/` 索引，也不回传上游。
 
 ---
@@ -99,6 +51,8 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 
 版本号引用链：`versionName`/`versionCode` 定义在 `app/build.gradle.kts`，`:desktop` 用正则从该文件读取。**不要随手改版本号**——上游用 `Version X.Y` 格式的独立提交管理版本，本地如果也去动它会成为每次同步的冲突源；本地构建想区分时，用 tag 或分支名，不改 `versionCode`。
 
+签名：`:app` 打包（debug 与 release 同配置）需要 `keystore/fork-debug.keystore`，缺失时 `validateSigningDebug` 直接失败。本机已有一份；新克隆要么向作者取文件，要么用 `keytool -genkeypair -keystore keystore/fork-debug.keystore -storetype PKCS12 -storepass simulsub-debug -alias fork-debug -keyalg RSA -keysize 2048 -validity 36500` 自建一把（自建的签名与发布包不同，两者不能互相覆盖升级）。
+
 ## 本机实测（Windows + Android 模拟器）
 
 - **arm64-only 的 APK 装到本机 x86_64 模拟器上跑不了原生库**：onnxruntime 会在 `dlopen` 静态初始化阶段就 SIGSEGV（崩在 linker64 的 call_constructors，还没进应用代码）——这是模拟器 ARM 转译的缺陷，不是应用 bug，别去追。要在模拟器上验证 sherpa-onnx 路径：临时把 `app/build.gradle.kts` 的 `abiFilters` 改成 `"x86_64"`（AAR 自带 x86_64 原生库）构建 debug 包，测完 `git checkout app/build.gradle.kts` 恢复，**这个改动绝不提交**。
@@ -110,7 +64,7 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 ## fork 模式的两个已知坑（已于 2026-10-18 处置，此节记录现状）
 
 1. **应用内更新检查**：`AppUpdater.kt` 的清单源**已改指向本 fork** `yuwanyuan/simul-subtitle-multi` 的 Release（改动集中在一个常量 `REPO`，与上游的冲突面只有那一行）。本仓库暂未发布 Release，检查更新会温和地提示"暂时没查到新版本"。要发布用它：把 CI 的 artifact APK（`SimulSub-<version>-<commit>.apk`）作为 `gh release create v<x.y.z>` 的附件。注意 `UpdateRelease.parse` 要求清单里的 apkUrl 与文件名匹配 `REPO` 的 release 路径形状；`versionCode` 按上游规矩不动（27），所以除非另行约定，应用内"自动更新"不会自动触发。**绝不要把这个常量改回上游地址**：那样它会把官方 APK 当更新下载，而本 fork 的 applicationId 不同，装下去是第二个 App 而不是升级。
-2. **签名与包名**：上游 Release 用原作者的 debug keystore 签名，本 fork 的 CI 构建用缓存的 CI debug keystore 签名。本 fork 因此使用**自己的包名** `applicationId = io.github.yuwanyuan.simulsub`（在 `app/build.gradle.kts`）——与官方版并存安装互不干扰、互不覆盖；**`namespace`（代码包名）保持 `io.github.korenkrita.simulsub` 不变**：改 namespace 要动全部源文件，等于每次同步上游都制造大面积冲突，而 Manifest 的 FileProvider authority 用 `${applicationId}` 占位符，会自动跟随。数据与模型按 applicationId 隔离（换包名后手机上等于全新安装，模型要重新下载）；CI 缓存的 keystore 是固定 key，连续 CI 构建之间可以正常覆盖升级。
+2. **签名与包名**：本 fork 的**所有构建共用一把固定 keystore**：`keystore/fork-debug.keystore`，`keystore/` 在 `.gitignore` 里、不进仓库——本机就是仓库目录下这个文件，CI 构建前从仓库 Secret `SIMULSUB_KEYSTORE_B64`（base64）还原到同一路径，`app/build.gradle.kts` 的 debug signingConfig 显式指向它（release 沿用 debug 配置）。证书 SHA-256 指纹 `7a:9a:ed:10:38:8e:3d:c8:01:c4:05:19:b1:84:e6:0b:29:32:e8:33:e3:99:0b:fc:92:5b:b5:c1:7d:de:70:22`。文件缺失时打包**报错**，而不是悄悄换一把 key——2026-10-17/18 的教训：CI 原用 `actions/cache` 缓存 `~/.android` 来固定签名，日志显示缓存每次"命中"，两次 CI 构建却签出不同证书（两天共出现三把 key，另一把是本机的 `~/.android/debug.keystore`），本地包与 CI 包互相覆盖安装报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`。**换 key 是破坏性操作**（所有已装设备必须卸载重装，App 数据与已下载模型一起丢），只有刻意迁移才动，且要同步改这一节。本 fork 因此使用**自己的包名** `applicationId = io.github.yuwanyuan.simulsub`（在 `app/build.gradle.kts`）——与官方版并存安装互不干扰、互不覆盖；**`namespace`（代码包名）保持 `io.github.korenkrita.simulsub` 不变**：改 namespace 要动全部源文件，等于每次同步上游都制造大面积冲突，而 Manifest 的 FileProvider authority 用 `${applicationId}` 占位符，会自动跟随。数据与模型按 applicationId 隔离（换包名后手机上等于全新安装，模型要重新下载）。
 
 ## 代码与修改规范（AI 协作硬规则）
 
@@ -123,7 +77,7 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 - **改 `Segmenter.kt` / `Pipeline.kt` 必须带测试**：这两个文件是分句与调度核心，上游持续在改。行为变更需同步给出 `SegmenterTest`/`PipelineTest` 断言，改完先跑 `:core:test` 再提交。
 - **不引入 `TODO`/`FIXME`**：全库当前为零，保持之。已知但未修的问题写进提交正文，不写进代码。
 - **新 UI 文案**：现状是硬编码中文，保持一致；除非上游先迁移到资源文件。
-- **不动 `app/build.gradle.kts` 的发布相关字段**（`versionCode`/`versionName`/签名），见上文版本号引用链一节。
+- **不动 `app/build.gradle.kts` 的发布相关字段**（`versionCode`/`versionName`）与签名密钥（`keystore/fork-debug.keystore`、CI 的 `SIMULSUB_KEYSTORE_B64` secret）：换 key 意味着所有已装设备必须卸载重装，只有刻意迁移才动，且要同步改上文「签名与包名」一节。
 
 ## 提交规范
 
