@@ -128,6 +128,8 @@ class CaptionSessionTest {
         val finished = CountDownLatch(1)
         @Volatile var lines: List<CaptionLine> = emptyList()
         @Volatile var diag: String? = null
+        /** the Jev light of the last show (changing the custom channel's address starts it over) */
+        @Volatile var jevLight: ServiceStatus.Light = ServiceStatus.Light.GREY
         override fun post(r: () -> Unit) { ui.execute(r) }
         override fun postDelayed(r: () -> Unit, ms: Long): AutoCloseable {
             val f = ui.schedule(r, ms, TimeUnit.MILLISECONDS)
@@ -156,7 +158,7 @@ class CaptionSessionTest {
         }
         override fun openAudio(log: SessionLog?) = audio
         override fun show(lines: List<CaptionLine>, diag: String?, mtLight: ServiceStatus.Light, jevLight: ServiceStatus.Light,
-                          mtReason: String?, jevReason: String?) { this.lines = lines; this.diag = diag }
+                          mtReason: String?, jevReason: String?) { this.lines = lines; this.diag = diag; this.jevLight = jevLight }
         override fun ended() = ended.countDown()
         override fun finished() = finished.countDown()
         /** waits for what was posted to the UI thread so far */
@@ -294,5 +296,37 @@ class CaptionSessionTest {
         assertFalse(paths.contains("/v1/systemone"))
         host.post { s.stop() }
         assertTrue(host.released.await(10, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun changingTheCustomChannelsAddressStartsItsLightOver() {
+        // the address switched to: it accepts and never answers, so its own outcome cannot arrive while the light is read
+        val hang = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
+        try {
+            val audio = FakeAudio(1.5f, null, endsByItself = false).apply { gateAt = (2.5f * 16_000).toInt() }
+            val host = FakeHost(audio)
+            host.prefs.jevOn = true
+            host.prefs.jevProvider = JevProvider.CUSTOM
+            // the first service answers, but not in Jev's shape: its light turns red (the service in use failed)
+            host.prefs.jevUrl = "http://127.0.0.1:${server.localPort}"
+            host.prefs.jevModel = "jev-mine"
+            val s = CaptionSession(host)
+            host.post { s.start() }
+            val t0 = monoMs()
+            while (host.jevLight != ServiceStatus.Light.RED && monoMs() - t0 < 20_000) Thread.sleep(20)
+            assertEquals(ServiceStatus.Light.RED, host.jevLight)
+            // the user enters another service's address while running: nothing has been asked of it yet, so its light
+            // must start over (grey), not keep the failed old address's red
+            host.prefs.jevUrl = "http://127.0.0.1:${hang.localPort}"
+            s.prefChanged("jevUrl")
+            val t1 = monoMs()
+            while (host.jevLight != ServiceStatus.Light.GREY && monoMs() - t1 < 10_000) Thread.sleep(20)
+            assertEquals(ServiceStatus.Light.GREY, host.jevLight)
+            audio.more.countDown()
+            host.post { s.stop() }
+            assertTrue(host.released.await(10, TimeUnit.SECONDS))
+        } finally {
+            runCatching { hang.close() }
+        }
     }
 }

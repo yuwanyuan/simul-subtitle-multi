@@ -354,7 +354,7 @@ class CaptionSession(private val host: SessionHost) {
             inUse = built.byok
             jevEndsOn = jevEnds; jevCheckOn = jevCheck
             // the services really in use (BYOK: the one its probe accepted, not a newly saved one still probed)
-            var mtId = built.byok; var jevId = firstSnap.jevKey?.let { firstSnap.provider.name + "\n" + it }
+            var mtId = built.byok; var jevId = firstSnap.jevService
             first.judge.let { j -> main.post { activeJudge = j; refresh() } }
             // the settings in use are not the ones session_start logged: say so, like a change while running
             logUsed(built, firstSnap, change = firstSnap !== s0)
@@ -413,7 +413,7 @@ class CaptionSession(private val host: SessionHost) {
                     // change or the session end either comes before (this setup is dropped) or after (it rebuilds again)
                     // another translator or Jev service: its light starts unknown (grey), never the old one's. The
                     // switch is queued on the main thread before the new setup can produce any result
-                    val m = b.byok; val j = s.jevKey?.let { s.provider.name + "\n" + it }
+                    val m = b.byok; val j = s.jevService
                     val mtNew = m != mtId; val jevNew = j != jevId
                     val judge = b.setup.judge
                     val activate = Runnable {
@@ -678,6 +678,12 @@ class CaptionSession(private val host: SessionHost) {
         val jevModel = (if (provider.custom) JevChannel.model(prefs.jevModel).second else provider.model).orEmpty()
         /** a custom channel is asked nothing before its address and model are both usable */
         val jevReady = jevUrl.isNotEmpty() && jevModel.isNotEmpty()
+        /**
+         * What tells one Jev service from another in a running session: its address, its model and the credentials
+         * (Jev keys its per-service pause by address and key). A custom channel's address and model are the user's, so
+         * changing either makes a rebuilt setup a service of its own — its light starts over, never the old one's.
+         */
+        val jevService = jevKey?.let { "$jevUrl\n$jevModel\n$it" }
 
         fun log() = mapOf("scene" to scene.label, "source_lang" to (source?.code ?: "auto"), "target_lang" to target.stored,
             "jev" to jevKey?.let { provider.name }, "jev_model" to jevKey?.let { jevModel },
