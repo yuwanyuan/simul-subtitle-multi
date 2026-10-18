@@ -21,20 +21,23 @@ jobs:
           distribution: zulu
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      # setup.sh skips its downloads when the size + SHA-256 check passes, so these two make a re-run nearly free;
-      # ~/.android holds the debug keystore the release build signs with: cached under a fixed key, so consecutive CI
-      # APKs upgrade-install over each other instead of a fresh runner minting a new key every run (a locally built
-      # APK still signs with this machine's key — one of the two must be uninstalled first, see AGENTS.md 签名)
+      # setup.sh skips its downloads when the size + SHA-256 check passes, so this makes a re-run nearly free
       - uses: actions/cache@v4
         with:
           path: |
             app/libs
             models
           key: android-deps-${{ hashFiles('setup.sh') }}
-      - uses: actions/cache@v4
-        with:
-          path: ~/.android
-          key: android-debug-keystore
+      # The signing key is not in the repo (keystore/ is gitignored): it is base64 in the SIMULSUB_KEYSTORE_B64 secret,
+      # written where app/build.gradle.kts looks for it. The fork's own machine has the same file, so every APK — CI or
+      # local, any machine — carries one signature and upgrades over the others. Missing = the build fails, by design.
+      - name: Restore the signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.SIMULSUB_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::the SIMULSUB_KEYSTORE_B64 secret is not set"; exit 1; fi
+          mkdir -p keystore
+          printf '%s' "$KEYSTORE_B64" | base64 -d > keystore/fork-debug.keystore
       - run: ./setup.sh
       # :core is pure JVM; the model-page pieces run under the app's unit tests too
       - run: ./gradlew :core:test :app:testDebugUnitTest :app:assembleRelease
