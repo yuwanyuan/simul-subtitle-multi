@@ -78,6 +78,8 @@ class MainActivity : Activity() {
             v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom); insets
         }
         prefs = Prefs(this)
+        // the model list is data now: read the cached copy once, so a saved remote id is known before any network
+        AsrCatalog.init(this)
 
         statusDot = findViewById(R.id.statusDot)
         statusTitle = findViewById(R.id.statusTitle)
@@ -164,7 +166,11 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.tabBox).visibility = if (on) View.GONE else View.VISIBLE
         findViewById<TextView>(R.id.settingsTitle).text = if (on) "语音识别模型" else "设置"
         showTab(if (on) TABS.indexOfFirst { it.first == R.id.tabCaption } else tab)
-        if (on) renderModels() else updateModelSummary()
+        if (on) {
+            // the list may have been edited since the last look: refetch (at most hourly; the status line forces one)
+            AsrCatalog.maybeRefresh(this) { onModelsChanged() }
+            renderModels()
+        } else updateModelSummary()
     }
 
     /** One step back: size / model page → settings → home → leave. */
@@ -519,7 +525,7 @@ class MainActivity : Activity() {
             val ts = Transcript.list(getExternalFilesDir(null)!!)
             if (ts.map { it.name } to ts.firstOrNull { Transcript.isWriting(it) } != listedTranscripts) renderTranscripts()
             // a settled download / import that happened with the model page closed, and the progress of one open
-            if (inModel && inSettings && (modelsDirty || AsrModels.downloading != null || AsrModels.importing)) { modelsDirty = false; renderModels() }
+            if (inModel && inSettings && (modelsDirty || AsrModels.downloading != null || AsrModels.importing || AsrCatalog.fetching)) { modelsDirty = false; renderModels() }
             main.postDelayed(this, 800)
         }
     }
@@ -1533,6 +1539,17 @@ class MainActivity : Activity() {
         })
     }
 
+    /** the model page's one line about the fetched list: its revision, or the failure it fell back from */
+    private fun catalogLine(): String {
+        val err = AsrCatalog.lastError
+        return when {
+            AsrCatalog.fetching -> "模型清单：正在获取…"
+            err != null -> "模型清单：获取失败（${err.take(60)}），仍用${if (AsrCatalog.usingFetched) "上次获取的清单" else "内置清单"}（点一下重试）"
+            AsrCatalog.usingFetched -> "模型清单：更新于 ${AsrCatalog.revision ?: "未标注"}（点一下重新获取）"
+            else -> "模型清单：用的是内置清单（点一下获取最新）"
+        }
+    }
+
     /** 设置 › 字幕 › 语音识别模型: the models that can be downloaded, an imported one. Models are not in the APK. */
     private fun renderModels() {
         val root = findViewById<LinearLayout>(R.id.modelList)
@@ -1541,6 +1558,10 @@ class MainActivity : Activity() {
         val dl = AsrModels.downloading
         var box = group(root, "可下载的模型")
         box.addView(hint("识别模型不装在 App 里了，从这里一次下载，存在这台手机上，以后离线也能用。第一个是原来带在 App 里的日英模型。下载好会直接选用。"))
+        // where the list itself came from, and the manual retry (the auto one is at most hourly, on page open)
+        box.addView(hint(catalogLine()).apply {
+            setOnClickListener { AsrCatalog.refresh(this@MainActivity) { onModelsChanged() } }
+        })
         for (def in AsrModels.CATALOG) {
             val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             if (dl != null && dl.def.id == def.id) {
