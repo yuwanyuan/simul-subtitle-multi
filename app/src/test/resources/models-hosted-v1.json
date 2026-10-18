@@ -5,7 +5,7 @@
     {
       "id": "builtin",
       "label": "日英模型（ReazonSpeech）",
-      "summary": "日、英 · 约 77 MB · HuggingFace（镜像下载）· 非流式 zipformer · 原本装在 App 里的那个",
+      "summary": "日、英 · 约 77 MB · HuggingFace（镜像下载）· 非流式 zipformer ",
       "streaming": false,
       "origin": "csukuangfj/reazonspeech-k2-v2-ja-en",
       "files": [
@@ -91,8 +91,8 @@
     },
     {
       "id": "hf-kroko-de",
-      "label": "德语流式模型（Kroko）",
-      "summary": "德语 · 约 71 MB · HuggingFace（镜像下载）· 流式 zipformer",
+      "label": "德英流式模型（Kroko）",
+      "summary": "德英 · 约 71 MB · HuggingFace（镜像下载）· 流式 zipformer",
       "streaming": true,
       "origin": "csukuangfj/sherpa-onnx-streaming-zipformer-de-kroko-2025-08-06",
       "files": [
