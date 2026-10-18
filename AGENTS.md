@@ -73,6 +73,7 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 - **位置**：`gitee.com/ywyyuwanyuan/simul-subtitle-multi` 根目录 `models.json`（**主**，网页上直接编辑，提交到 `main` 即生效）；本仓库（GitHub fork）根目录的同名文件是**备用源**——改完 gitee 记得把同一份文件也提交过来，否则备用源落后。
 - **App 行为**：打开「设置 › 字幕 › 语音识别模型」时最多每小时拉一次（失败后 5 分钟内不重试；页面上的清单状态行可以直接点，强制刷新）。回退链：gitee raw → raw.githubusercontent（fork 的 `my-mod`）→ gh-proxy.com / gh.llkk.cc。成功后清单**原文**缓存到 `Android/data/<包名>/files/asr-catalog.json`（约 7KB，原地覆盖写、不会累积）；获取失败或校验不过时用缓存，再没有就用代码里的 `AsrModels.BUILTIN_CATALOG`（清单里没有 `builtin` 条目时它也会被补上，默认模型永远可下载）。
 - **校验规则**（编辑时别踩；违反一条整份清单会被弃用并在页面上报原因）：`schemaVersion` 必须为 1；`id` 只能是小写字母/数字/`._-` 且不能是 `custom`；每个模型恰好四个文件、按文件名前缀认出 encoder / decoder / joiner / tokens 四个角色各一个；`bytes > 0`；**每个文件的 `sha256` 必填**（64 位小写十六进制，用 `sha256sum` 对实际文件算）；下载地址必须 `https://` 开头、每条 1–4 个。
+- **可选的 `preferred: true`**：给该模型在列表行加一个绿色「首选」小标签（纯提示，不改列表顺序、不影响任何行为——`firstReady` 的回退顺序始终是文件里的条目顺序）。目前标在 `builtin`（日英模型）上。
 - **改清单不会让已下载的模型重下**：下载状态按「模型 id + 文件本地名 + 字节数」判定（`AsrModels.ready`），改 URL、文案、条目顺序都无影响；只有改了字节数或 id 才视为新文件。`AsrCatalogTest` 用冻结的 v1 清单把这条等价性锁进了测试。
 - **能力边界**：清单只决定「列表里有什么、从哪下」，不能带来新引擎——App 只认 `streaming`（zipformer → `StreamingSherpaAsr`）与 `streaming=false`（离线 transducer → `FileTransducerAsr`）两种；别的模型类型放进来跑不了。
 
