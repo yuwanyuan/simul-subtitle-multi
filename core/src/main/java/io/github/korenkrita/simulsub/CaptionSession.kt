@@ -685,11 +685,16 @@ class CaptionSession(private val host: SessionHost) {
          */
         val jevService = jevKey?.let { "$jevUrl\n$jevModel\n$it" }
 
-        fun log() = mapOf("scene" to scene.label, "source_lang" to (source?.code ?: "auto"), "target_lang" to target.stored,
-            "jev" to jevKey?.let { provider.name }, "jev_model" to jevKey?.let { jevModel },
-            "jev_url" to jevKey?.let { jevUrl },
-            "dedupe_join" to dedupe, "context_sentences" to contextN,
-            "mt_model" to byok?.model, "mt_url" to byok?.url)
+        fun log(): Map<String, Any?> {
+            // only a channel that is really asked: the key decides (null = no judge at all), and a custom channel
+            // sends nothing before its address and model are usable — the log must not claim it was asked
+            val jev = jevKey?.takeIf { jevReady }
+            return mapOf("scene" to scene.label, "source_lang" to (source?.code ?: "auto"), "target_lang" to target.stored,
+                "jev" to jev?.let { provider.name }, "jev_model" to jev?.let { jevModel },
+                "jev_url" to jev?.let { jevUrl },
+                "dedupe_join" to dedupe, "context_sentences" to contextN,
+                "mt_model" to byok?.model, "mt_url" to byok?.url)
+        }
     }
 
     companion object {
