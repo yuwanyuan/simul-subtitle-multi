@@ -11,8 +11,10 @@ import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
 
 /**
- * The models ship inside the APK (app/src/main/assets, put there by setup.sh) and sherpa-onnx reads them from the
- * assets directly:
+ * The engine from when the models travelled inside the APK: it reads them from the assets, where setup.sh now puts
+ * the VAD only (the ASR models are downloads/imports and [AsrEngines] runs those files from disk). Nothing constructs
+ * it any more — it stays as the merge buffer for upstream syncs; were it ever wired up again, re-check both the asset
+ * layout below and the empty modelType (see [StreamingSherpaAsr]).
  *   models/asr/encoder.int8.onnx, decoder.onnx, joiner.int8.onnx, tokens.txt  (ReazonSpeech zipformer)
  *   models/vad/silero_vad.onnx
  */
@@ -30,7 +32,9 @@ class SherpaAsr(assets: AssetManager, threads: Int) : Asr {
                 ),
                 tokens = "$ASR_DIR/tokens.txt",
                 numThreads = threads,
-                modelType = "transducer",
+                // empty = auto-detect from the ONNX metadata, like [StreamingSherpaAsr]/[FileTransducerAsr]: a fixed
+                // string only happened to fit this one file and would _Exit() the process on any other model
+                modelType = "",
             ),
             decodingMethod = "greedy_search",
         ),
