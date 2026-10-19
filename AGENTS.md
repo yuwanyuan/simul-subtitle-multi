@@ -70,7 +70,7 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 
 可下载模型的列表是**数据文件**，不再写死在代码里（代码入口 `AsrCatalog.kt`，与应用内更新的「拉清单 + 多源回退」同一套思路）：
 
-- **位置**：`gitee.com/ywyyuwanyuan/simul-subtitle-multi` 根目录 `models.json`（**主**，网页上直接编辑，提交到 `main` 即生效）；本仓库（GitHub fork）根目录的同名文件是**备用源**——改完 gitee 记得把同一份文件也提交过来，否则备用源落后。
+- **位置**：`gitee.com/ywyyuwanyuan/simul-subtitle-multi` 根目录 `models.json`（**主**，提交到 `main` 即生效：网页直接编辑，或本机 SSH 直推 `git@gitee.com:ywyyuwanyuan/simul-subtitle-multi.git`，私钥 `~/.ssh/gitee_ed25519`）；本仓库（GitHub fork）根目录的同名文件是**备用源**——两侧必须逐字节一致，改完一侧记得把同一份文件提交到另一侧，否则落后。
 - **App 行为**：打开「设置 › 字幕 › 语音识别模型」时最多每小时拉一次（失败后 5 分钟内不重试；页面上的「刷新清单」按钮随时强制刷新）。回退链：gitee raw → raw.githubusercontent（fork 的 `my-mod`）→ gh-proxy.com / gh.llkk.cc。成功后清单**原文**缓存到 `Android/data/<包名>/files/asr-catalog.json`（约 7KB，原地覆盖写、不会累积）；获取失败或校验不过时用缓存，再没有就用代码里的 `AsrModels.BUILTIN_CATALOG`（清单里没有 `builtin` 条目时它也会被补上，默认模型永远可下载）。
 - **清单结构**（编辑时对照；`AsrCatalog.parse` 只认这一版，违反任何一条整份清单会被弃用并在页面上报原因）：
 
