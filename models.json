@@ -133,6 +133,51 @@
           "sha256": "86e8370994ff2c01149ba8c4f8709aa93cdc18914b27a717e291e96faf39a6eb"
         }
       ]
+    },
+    {
+      "id": "hf-korean",
+      "label": "韩语模型（KsponSpeech）",
+      "summary": "韩语 · 约 85 MB · HuggingFace（镜像下载）· 非流式 zipformer",
+      "streaming": false,
+      "origin": "k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24",
+      "files": [
+        {
+          "local": "encoder-epoch-99-avg-1.int8.onnx",
+          "urls": [
+            "https://hf-mirror.com/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/encoder-epoch-99-avg-1.int8.onnx",
+            "https://huggingface.co/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/encoder-epoch-99-avg-1.int8.onnx"
+          ],
+          "bytes": 70784728,
+          "sha256": "8b196d723421a0513c98ec25da2c43420c029e817f5e4a90b29ff80291c0af2b"
+        },
+        {
+          "local": "decoder-epoch-99-avg-1.onnx",
+          "urls": [
+            "https://hf-mirror.com/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/decoder-epoch-99-avg-1.onnx",
+            "https://huggingface.co/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/decoder-epoch-99-avg-1.onnx"
+          ],
+          "bytes": 11309084,
+          "sha256": "b486221625f4680659c21eaf0505c50e64a897583af4f9ca6f87dea762a33885"
+        },
+        {
+          "local": "joiner-epoch-99-avg-1.int8.onnx",
+          "urls": [
+            "https://hf-mirror.com/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/joiner-epoch-99-avg-1.int8.onnx",
+            "https://huggingface.co/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/joiner-epoch-99-avg-1.int8.onnx"
+          ],
+          "bytes": 2581421,
+          "sha256": "eb654db1ea2cc9d63474855f65958b6059084692a9f2eb4f3812aceb1e416a20"
+        },
+        {
+          "local": "tokens.txt",
+          "urls": [
+            "https://hf-mirror.com/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/tokens.txt",
+            "https://huggingface.co/k2-fsa/sherpa-onnx-zipformer-korean-2024-06-24/resolve/0fb4b2b5c8d3e5766121481ba911961e3649c664/tokens.txt"
+          ],
+          "bytes": 60246,
+          "sha256": "016bdf0965029263b7ad01b742366ee542ef0bef38261510e8176ff6f2e9e668"
+        }
+      ]
     }
   ]
 }
