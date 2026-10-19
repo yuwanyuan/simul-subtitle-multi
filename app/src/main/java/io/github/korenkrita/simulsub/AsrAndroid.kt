@@ -21,7 +21,9 @@ fun installAsr(ctx: Context) {
         prefs = AndroidAsrPrefs(ctx),
         post = { android.os.Handler(android.os.Looper.getMainLooper()).post(it) },
         log = { m, e -> if (e == null) Log.i(TAG, m) else Log.w(TAG, m, e) },
-        userAgent = "SimulSub/${BuildConfig.VERSION_NAME}",
+        // the version only: AsrModels writes the "SimulSub/" prefix itself (that is the header the hubs have seen
+        // since before the store moved here), and the desktop hands its own version in the same way
+        userAgent = BuildConfig.VERSION_NAME,
     )
     // builtinDir stays null: the phone's 内置模型 is a download like the rest (the APK packs no model)
     AsrCatalog.cacheFile = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "asr-catalog.json")
