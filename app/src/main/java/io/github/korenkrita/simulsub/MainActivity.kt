@@ -78,8 +78,9 @@ class MainActivity : Activity() {
             v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom); insets
         }
         prefs = Prefs(this)
+        installAsr(this) // the model store's platform seams: where models live, the settings file, the engines
         // the model list is data now: read the cached copy once, so a saved remote id is known before any network
-        AsrCatalog.init(this)
+        AsrCatalog.init()
 
         statusDot = findViewById(R.id.statusDot)
         statusTitle = findViewById(R.id.statusTitle)
@@ -168,7 +169,7 @@ class MainActivity : Activity() {
         showTab(if (on) TABS.indexOfFirst { it.first == R.id.tabCaption } else tab)
         if (on) {
             // the list may have been edited since the last look: refetch (at most hourly; the status line forces one)
-            AsrCatalog.maybeRefresh(this) { onModelsChanged() }
+            AsrCatalog.maybeRefresh { onModelsChanged() }
             renderModels()
         } else updateModelSummary()
     }
@@ -556,7 +557,7 @@ class MainActivity : Activity() {
             val missingPerm = !hasAudio() || !Settings.canDrawOverlays(this)
             val hint = if (missingPerm) "点下面的按钮，按提示允许下方两项，就能开始。" else "点下面的按钮，再在弹出的窗口里选你要看的 App。"
             renderService()
-            if (!AsrModels.anyReady(this)) {
+            if (!AsrModels.anyReady()) {
                 // nothing in the APK any more: without one downloaded model there is nothing to hear with
                 status(R.color.warn, "先下载一个语音识别模型", "到「设置 › 字幕 › 语音识别模型」选一个下载：日英模型 77 MB，多语种 339 MB，德语 71 MB。下载完就能开始。")
                 primary.text = "去下载模型"; primary.setIconResource(R.drawable.ic_settings)
@@ -1495,12 +1496,12 @@ class MainActivity : Activity() {
     /** the 字幕 page's entry row always names the model in use (or says that none is downloaded yet) */
     private fun updateModelSummary() {
         val text = when {
-            AsrModels.selectionUsable(this) -> AsrModels.labelOf(this) + when (AsrModels.selected(this)) {
+            AsrModels.selectionUsable() -> AsrModels.labelOf() + when (AsrModels.selected()) {
                 AsrModels.BUILTIN, AsrModels.CUSTOM -> ""
-                else -> if (AsrModels.downloading?.def?.id == AsrModels.selected(this)) "（下载中）" else ""
+                else -> if (AsrModels.downloading?.def?.id == AsrModels.selected()) "（下载中）" else ""
             }
-            AsrModels.firstReady(this) != null ->
-                "${AsrModels.firstReady(this)!!.label}（已选的「${AsrModels.labelOf(this)}」文件不全）"
+            AsrModels.firstReady() != null ->
+                "${AsrModels.firstReady()!!.label}（已选的「${AsrModels.labelOf()}」文件不全）"
             else -> "还没下载，先去 设置 › 字幕 › 语音识别模型 下载一个"
         }
         findViewById<TextView>(R.id.modelSummary).text = "现在用：$text"
@@ -1554,14 +1555,14 @@ class MainActivity : Activity() {
     private fun renderModels() {
         val root = findViewById<LinearLayout>(R.id.modelList)
         root.removeAllViews()
-        val sel = AsrModels.selected(this)
+        val sel = AsrModels.selected()
         val dl = AsrModels.downloading
         var box = group(root, "可下载的模型")
         // where the list came from, and an obvious way to fetch it again (the automatic one is at most hourly)
         val listLine = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         listLine.addView(hint(catalogLine()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         listLine.addView(pillButton(if (AsrCatalog.fetching) "获取中…" else "刷新清单") {
-            AsrCatalog.refresh(this) { onModelsChanged() }
+            AsrCatalog.refresh { onModelsChanged() }
         }.apply { isEnabled = !AsrCatalog.fetching })
         box.addView(listLine)
         for (def in AsrModels.CATALOG) {
@@ -1588,18 +1589,18 @@ class MainActivity : Activity() {
                 modelRow(box, texts, acts)
                 continue
             }
-            val ready = AsrModels.ready(this, def)
+            val ready = AsrModels.ready(def)
             val used = sel == def.id && ready
             val actions = mutableListOf<Pair<String, (() -> Unit)?>>()
             // the manifest's 「首选」 mark: a green status pill like 使用中, not a button
             if (def.preferred) actions += "首选" to null
             // only a ready model can be used (and deleted): the picker of an undownloaded one is 下载并使用
             if (ready) actions += if (used) "使用中" to null else "使用" to {
-                AsrModels.select(this, def.id); onModelsChanged()
+                AsrModels.select(def.id); onModelsChanged()
             }
             if (ready) actions += "删除" to {
                 confirmDelete("删除「${def.label}」？", "删除后要再下载才能用（约 ${mb(def.sizeBytes)}）。") {
-                    AsrModels.delete(this, def.id); onModelsChanged()
+                    AsrModels.delete(def.id); onModelsChanged()
                 }
             } else actions += "下载并使用" to { confirmDownload(def) }
             modelRow(box, texts.apply {
@@ -1623,7 +1624,7 @@ class MainActivity : Activity() {
 
         // -- a model the user brought: four files picked from the phone (or its file manager)
         box = group(root, "本地自定义模型")
-        val custom = AsrModels.custom(this)
+        val custom = AsrModels.custom()
         if (custom == null) {
             box.addView(hint("用自己的 sherpa-onnx transducer 模型：识别不出的语言、自己训练的模型都可以。需要四个文件：encoder、decoder、joiner 和 tokens.txt。"))
             if (AsrModels.importing)
@@ -1636,12 +1637,12 @@ class MainActivity : Activity() {
         } else {
             val streamName = if (custom.kind == AsrModels.KIND_STREAMING) "流式" else "非流式"
             modelRow(box, rowTexts("自定义模型", "$streamName · ${custom.files.values.joinToString("、")}"), listOf(
-                if (sel == AsrModels.CUSTOM && AsrModels.customReady(this)) "使用中" to null else "使用" to {
-                    AsrModels.select(this, AsrModels.CUSTOM); onModelsChanged()
+                if (sel == AsrModels.CUSTOM && AsrModels.customReady()) "使用中" to null else "使用" to {
+                    AsrModels.select(AsrModels.CUSTOM); onModelsChanged()
                 },
                 "删除" to {
                     confirmDelete("删除自定义模型？", "文件和设置都会删掉；要用得重新导入。") {
-                        AsrModels.delete(this, AsrModels.CUSTOM); onModelsChanged()
+                        AsrModels.delete(AsrModels.CUSTOM); onModelsChanged()
                     }
                 }))
         }
@@ -1649,7 +1650,7 @@ class MainActivity : Activity() {
         box.addView(dropdown(listOf("流式 zipformer（模型站下载的一般是）", "非流式 transducer（自己导出的）"),
             if (custom == null || custom.kind == AsrModels.KIND_STREAMING) 0 else 1, custom != null) {
             val kind = if (it == 0) AsrModels.KIND_STREAMING else AsrModels.KIND_OFFLINE
-            if (custom != null && custom.kind != kind) { AsrModels.setCustomKind(this, kind); onModelsChanged() }
+            if (custom != null && custom.kind != kind) { AsrModels.setCustomKind(kind); onModelsChanged() }
         })
         box.addView(hint("多数能下载到的 zipformer 模型是流式的；自己导出的离线 transducer 选非流式。拿不准就先用流式，识别不出再来改。"))
         findViewById<TextView>(R.id.modelHint).text =
@@ -1659,12 +1660,12 @@ class MainActivity : Activity() {
 
     /** Anything worth a mobile-data warning waits for a yes; all the models here qualify. */
     private fun confirmDownload(def: AsrModelDef) {
-        if (def.sizeBytes < 50L * 1024 * 1024) { AsrModels.startDownload(this, def) { onModelsChanged() }; return }
+        if (def.sizeBytes < 50L * 1024 * 1024) { AsrModels.startDownload(def) { onModelsChanged() }; return }
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("下载「${def.label}」？")
             .setMessage("约 ${mb(def.sizeBytes)}，建议在 Wi-Fi 下。下载完会直接选用（从下次开始字幕时生效）。")
             .setNegativeButton("取消", null)
-            .setPositiveButton("下载") { _, _ -> AsrModels.startDownload(this, def) { onModelsChanged() } }
+            .setPositiveButton("下载") { _, _ -> AsrModels.startDownload(def) { onModelsChanged() } }
             .show()
     }
 
@@ -1717,7 +1718,7 @@ class MainActivity : Activity() {
     private fun doImport(streaming: Boolean) {
         val items = pendingImport ?: return
         Toast.makeText(this, "正在导入（复制文件）…", Toast.LENGTH_SHORT).show()
-        val err = AsrModels.import(this, items, streaming) { onModelsChanged() }
+        val err = AsrModels.import(asrSources(this, items), streaming) { onModelsChanged() }
         if (err != null) Toast.makeText(this, err, Toast.LENGTH_LONG).show()
     }
 

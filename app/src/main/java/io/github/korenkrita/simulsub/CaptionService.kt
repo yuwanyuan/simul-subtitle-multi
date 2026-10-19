@@ -98,7 +98,7 @@ class CaptionService : Service(), SessionHost {
         val vad = SileroProb(assets)
         // the model chosen in 设置 › 字幕 › 语音识别模型: the built-in one from the assets, or a downloaded /
         // imported one from files ([AsrModels] throws with a message for the overlay when its files are gone)
-        val asr = runCatching { AsrModels.createAsr(this, asrThreads) }.getOrElse { vad.release(); throw it }
+        val asr = runCatching { AsrModels.createAsr(asrThreads) }.getOrElse { vad.release(); throw it }
         return object : SpeechModels {
             override val asr: Asr = asr
             override fun vadProb(frame: FloatArray) = vad.prob(frame)

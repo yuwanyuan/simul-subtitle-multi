@@ -1,7 +1,5 @@
 package io.github.korenkrita.simulsub
 
-import android.content.Context
-import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONException
@@ -9,13 +7,15 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 
 /**
  * The downloadable-model list as data: a `models.json` the fork's author keeps in the Gitee mirror of this repo
  * (primary) and in the GitHub fork's copy (backup, with the two download proxies in front of it), so a model can be
  * added, a dead URL replaced or a wrong size corrected without shipping an APK. [AsrModels.BUILTIN_CATALOG] stays in
- * the code as the offline fallback and the one entry no edit can drop (`builtin`, the model the app was born with).
+ * the code as the offline fallback and the one entry no edit can drop (`builtin`).
  *
  * A fetched list is the truth: it replaces the code's list wholesale, and its order is the page's order (and
  * [AsrModels.firstReady]'s fallback order). What makes an already-downloaded model stay downloaded is the entry
@@ -24,11 +24,10 @@ import java.util.concurrent.TimeUnit
  *
  * Parsing is strict on purpose (id shape, exactly the four transducer roles, https-only URLs, a SHA-256 per file):
  * the app is about to download from what the file names, and a bad file is dropped whole with a reason instead of
- * being half-listed. The last good text is cached next to the model directories; with no network that copy is used,
- * with none at all the code's list.
+ * being half-listed. The last good text is cached in [cacheFile]; with no network that copy is used, with none at
+ * all the code's list.
  */
 object AsrCatalog {
-    private const val TAG = "jpsub"
     /** the only shape this app understands; a file of a newer one is rejected, never half-read */
     private const val SCHEMA = 1
     /** the Gitee mirror (edited there directly) and the GitHub fork's copy (the backup) */
@@ -43,6 +42,17 @@ object AsrCatalog {
 
     /** What a parsed manifest holds: the [revision] the page shows and the [models] in the file's own order. */
     class Parsed(val revision: String?, val models: List<AsrModelDef>)
+
+    /** The last good manifest text, in a file the platform names (the phone: beside the model directories); the
+     *  platform sets it before [init]. */
+    lateinit var cacheFile: File
+
+    /** How a platform runs [r] on its UI thread; defaults to [AsrModels.post], so [AsrModels.install] alone wires
+     *  the catalog too, and a platform that wants its own hops sets it here. */
+    var post: ((() -> Unit) -> Unit) = { r -> AsrModels.post(r) }
+
+    /** Where a platform writes its log; defaults to [AsrModels.log], same reasoning as [post]. */
+    var log: (String, Throwable?) -> Unit = { m, e -> AsrModels.log(m, e) }
 
     /** the fetched list; [AsrModels.CATALOG] prefers it, null = the code's own list */
     @Volatile private var fetched: List<AsrModelDef>? = null
@@ -63,14 +73,14 @@ object AsrCatalog {
     fun sources() = listOf(GITEE, GITHUB, "https://gh-proxy.com/$GITHUB", "https://gh.llkk.cc/$GITHUB")
 
     /**
-     * Reads the cached list once, at the activity's start: a few KB on the UI thread, and a cold start on no network
-     * still knows a remote model id the saved selection may point at ([AsrModels.selectionUsable]).
+     * Reads the cached list once, at the start-up of a page that may show it: a few KB on the UI thread, and a cold
+     * start on no network still knows a remote model id the saved selection may point at ([AsrModels.selectionUsable]).
      */
-    fun init(ctx: Context) {
+    fun init() {
         if (loaded) return
         loaded = true
         runCatching {
-            val f = cacheFile(ctx)
+            val f = cacheFile
             if (f.isFile) {
                 val p = parse(f.readText())
                 fetched = p.models
@@ -78,7 +88,7 @@ object AsrCatalog {
                 // when that copy really was fetched, so an old one is still refreshed on the next page open
                 lastOkAt = f.lastModified()
             }
-        }.onFailure { Log.w(TAG, "缓存的模型清单读不出来", it) }
+        }.onFailure { log("缓存的模型清单读不出来", it) }
     }
 
     /** [AsrModels.CATALOG]: the fetched list when there is one, else the code's own */
@@ -95,19 +105,18 @@ object AsrCatalog {
      * What the model page calls when it opens: fetch unless one is running, the last success is younger than
      * [REFRESH_INTERVAL_MS], or the last failure is younger than [RETRY_MS]. [after] runs on the UI thread either way.
      */
-    fun maybeRefresh(ctx: Context, after: () -> Unit) {
+    fun maybeRefresh(after: () -> Unit) {
         val now = System.currentTimeMillis()
         if (fetching || (fetched != null && now - lastOkAt < REFRESH_INTERVAL_MS) || now - lastTryAt < RETRY_MS) {
             post(after)
             return
         }
-        refresh(ctx, after)
+        refresh(after)
     }
 
     /** Fetches now (the status line's click): one at a time, off the UI thread; [after] runs on the UI thread. */
-    fun refresh(ctx0: Context, after: () -> Unit) {
+    fun refresh(after: () -> Unit) {
         if (fetching) { post(after); return }
-        val ctx = ctx0.applicationContext
         fetching = true
         lastTryAt = System.currentTimeMillis()
         Thread({
@@ -124,15 +133,17 @@ object AsrCatalog {
                 lastError = null
                 lastOkAt = System.currentTimeMillis()
                 runCatching {
-                    val f = cacheFile(ctx)
+                    val f = cacheFile
                     val tmp = File(f.parentFile, f.name + ".part")
                     tmp.writeBytes(text.toByteArray(Charsets.UTF_8))
-                    if (!tmp.renameTo(f)) tmp.delete() // on Linux rename replaces; a refusal leaves no .part behind
-                }.onFailure { Log.w(TAG, "模型清单没能写进缓存", it) }
-                Log.i(TAG, "模型清单已更新：${revision ?: "无 revision"}，${p.models.size} 个模型")
+                    // REPLACE_EXISTING: on Windows File.renameTo refuses an existing target, so the copy would
+                    // never update after the first fetch (the desktop's Prefs hit the same trap on its settings)
+                    Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }.onFailure { log("模型清单没能写进缓存", it) }
+                log("模型清单已更新：${revision ?: "无 revision"}，${p.models.size} 个模型", null)
             } else {
                 lastError = why ?: "获取失败"
-                Log.w(TAG, "模型清单获取失败：$lastError")
+                log("模型清单获取失败：$lastError", null)
             }
             fetching = false
             post(after)
@@ -212,7 +223,7 @@ object AsrCatalog {
         }
     }
 
-    /** a short reason for the page's status line (the Log gets the whole failure) */
+    /** a short reason for the page's status line (the log gets the whole failure) */
     private fun reason(t: Throwable): String = when {
         t is CatalogHttp -> "HTTP ${t.code}"
         t is SocketTimeoutException -> "连接超时"
@@ -220,11 +231,6 @@ object AsrCatalog {
         t is IOException -> "网络不通"
         else -> t.message ?: t.javaClass.simpleName
     }
-
-    /** beside the model directories (the same app-specific storage [AsrModels.root] uses): the last good text */
-    private fun cacheFile(ctx: Context): File = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "asr-catalog.json")
-
-    private fun post(r: () -> Unit) = android.os.Handler(android.os.Looper.getMainLooper()).post(r)
 
     private val CLIENT = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS)
