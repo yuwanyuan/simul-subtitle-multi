@@ -69,7 +69,10 @@ private fun sizeText(b: Long) = if (b >= 1e6) "%.1f MB".format(b / 1e6) else "%.
 
 /** Starts captions from the home screen, the menu bar or the toolbar; null when it cannot, with the reason. */
 private fun startCaptions(): String? {
-    if (!prefs.byokReady) return "LLM API 还没填完整：请在设置「翻译」里填好服务地址、模型 ID 和 API Key 并保存。"
+    // Either way in: a filled LLM API, or 本地翻译 with a downloaded model — a user who only ever wanted the offline
+    // translator must not be told to fill an API they will never use (the first local build did exactly that).
+    if (!prefs.byokReady && !localReady())
+        return "还没有能用的翻译服务：在设置「翻译」里填好 LLM API，或在「本地翻译」里下载并打开一个本地模型。"
     if (!sysaudioFile.canExecute()) return "找不到系统声音采集程序（${sysaudioFile.path}）"
     // a 测试连接 still running would probe the same service the session probes on first use (billed twice)
     byokTest.value?.cancel(); byokTest.value = null
@@ -203,12 +206,16 @@ private fun Home(startError: String?, setStartError: (String?) -> Unit, openTran
         @Composable fun bigButton(fill: Color, onClick: () -> Unit, content: @Composable () -> Unit) =
             Box(Modifier.fillMaxWidth().height(44.dp).background(fill, RoundedCornerShape(10.dp)).clickable { onClick() },
                 contentAlignment = Alignment.Center) { content() }
-        val ready = prefs.byokReady
+        val local = localReady()
+        val ready = prefs.byokReady || local
         when {
             running && ended -> status(C.warn, "字幕已经停了", "原因写在字幕框里。点下面的按钮关掉它，然后可以重新开始。")
             running && paused -> status(C.warn, "字幕已暂停", "声音不再识别，字幕窗口保留。点「继续字幕」接着出字幕。")
-            running -> status(C.ok, "字幕正在显示", "回到你要看的视频或直播就行。\n点一下字幕，可以调大小、暂停或停止；关掉这个窗口字幕也会继续，${if (isWindows) "任务栏右下角" else "菜单栏"}的图标里可以停止。")
-            !ready -> status(C.warn, "先填翻译用的 LLM API", "填好服务地址、模型 ID 和 API Key，点「测试连接」，就能开始。声音识别已经装在 App 里，不用下载。")
+            running -> status(C.ok, "字幕正在显示", "回到你要看的视频或直播就行。
+点一下字幕，可以调大小、暂停或停止；关掉这个窗口字幕也会继续，${if (isWindows) "任务栏右下角" else "菜单栏"}的图标里可以停止。")
+            // a downloaded local model with the switch still off: the one thing missing is the switch, not an API
+            !ready && LlmModels.anyReady() -> status(C.warn, "本地模型已经下载，打开就能用", "到「设置 › 翻译 › 本地翻译」打开「用本地模型翻译」，不用填 LLM API。")
+            !ready -> status(C.warn, "先填翻译用的 LLM API", "填好服务地址、模型 ID 和 API Key，点「测试连接」，就能开始；也可以到「设置 › 翻译 › 本地翻译」下载一个本地模型，离线翻译。声音识别已经装在 App 里，不用下载。")
             startError != null -> status(C.err, "还不能开始", startError)
             else -> status(C.brand, "可以开始了", "点下面的按钮开始。" + if (isWindows) "" else "第一次会问你是否允许同传字幕录制系统声音，请选「允许」。")
         }
@@ -256,21 +263,26 @@ private fun Home(startError: String?, setStartError: (String?) -> Unit, openTran
                 Spacer(Modifier.height(8.dp))
                 Btn(if (paused) "▶  继续字幕" else "⏸  暂停字幕", modifier = Modifier.fillMaxWidth()) { CaptionService.togglePause() }
             }
-            !ready -> bigButton(C.brand, openTranslate) { Text("去填写", color = C.onBrand, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+            !ready -> bigButton(C.brand, openTranslate) {
+                Text(if (LlmModels.anyReady()) "去打开" else "去填写", color = C.onBrand, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
             else -> bigButton(C.brand, { setStartError(startCaptions()) }) {
                 Text("▶  开始字幕", color = C.onBrand, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
         Spacer(Modifier.height(12.dp)); Divider()
-        // the LLM API in use; opens 设置 › 翻译
+        // the LLM API — or 本地翻译 — in use; opens 设置 › 翻译
         val host = ByokTranslator.chatUrl(prefs.byokUrl).second?.let { java.net.URI(it).host }
         Row(Modifier.fillMaxWidth().clickable { openTranslate() }.padding(top = 10.dp, bottom = 2.dp, start = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text(if (ready) {
-                val p = prefs.byokProfile.name.takeIf { prefs.byokProfiles.size > 1 }
-                "翻译：" + (if (p != null) "$p · " else "") + "${prefs.byokModel} · $host"
-            } else "翻译：还没填 LLM API", color = C.text2, fontSize = 14.sp,
-                modifier = Modifier.weight(1f), maxLines = 1)
+            Text(when {
+                local -> "翻译：本地模型 · ${localModel()?.label ?: "混元翻译 1.8B"}（不联网）"
+                ready -> {
+                    val p = prefs.byokProfile.name.takeIf { prefs.byokProfiles.size > 1 }
+                    "翻译：" + (if (p != null) "$p · " else "") + "${prefs.byokModel} · $host"
+                }
+                else -> "翻译：还没填 LLM API"
+            }, color = C.text2, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
             Text("›", color = C.muted, fontSize = 18.sp)
         }
         Spacer(Modifier.height(8.dp)); Divider()
