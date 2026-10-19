@@ -37,6 +37,21 @@ import kotlinx.coroutines.delay
 private val mtPrefs get() = Prefs.prefs
 
 /**
+ * The local model a session would run: the selected one when its file is there, else the first one that is (the same
+ * fallback [LlmModels.delete] leaves behind). Null while no model is downloaded.
+ */
+internal fun localModel(): LlmModels.Def? =
+    LlmModels.def(LlmModels.selected())?.takeIf { LlmModels.ready(it) }
+        ?: LlmModels.CATALOG.firstOrNull { LlmModels.ready(it) }
+
+/**
+ * true = captions can start on this machine alone: 用本地模型翻译 is on and there is a downloaded model for it. The
+ * home card and [startCaptions] ask this — without it a user who never filled an LLM API has no way to start, even
+ * though the local model is right there (the bug that came back from the first local-translation build).
+ */
+internal fun localReady(): Boolean = mtPrefs.localMtOn && localModel() != null
+
+/**
  * 设置 › 翻译 › 本地翻译（离线）: the PC's offline translation, as [LlmModels] lays it out — one Tencent Hunyuan MT GGUF
  * downloaded once, then every sentence translated in this process by the desktop's llama.cpp binding, with no API and
  * no network. The group is [ModelPage]'s shape (its rows, its ask-windows, the tick while a download runs) over a
@@ -61,13 +76,10 @@ fun LocalMtGroup() {
     tick.let { } // read: the tick is what recomposes everything below
 
     val dl = LlmModels.downloading
-    val sel = LlmModels.selected()
     // what the page reports and the switch needs: any catalog model whose file is there
     val downloaded = LlmModels.anyReady()
-    // The model the 现状行 names: the selected one when it is downloaded, else the first one that is — the same
-    // fallback [LlmModels.delete] uses, so the line never points at a model that is not on this computer.
-    val current = LlmModels.CATALOG.firstOrNull { it.id == sel && LlmModels.ready(it) }
-        ?: LlmModels.CATALOG.firstOrNull { LlmModels.ready(it) }
+    val current = localModel() // the model the 现状行 names, and the one a session would run
+    val sel = LlmModels.selected()
 
     // the download itself, which settles on the UI thread, where [tick] shows the result
     fun downloadNow(def: LlmModels.Def) { LlmModels.startDownload(def) { tick++ }; tick++ }
