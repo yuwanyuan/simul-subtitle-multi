@@ -149,16 +149,21 @@ private class TrayIcon(val on: Boolean, val dark: Boolean) : Painter() {
 private fun MainScreen(startError: String?, setStartError: (String?) -> Unit) {
     var settings by remember { mutableStateOf(false) }
     var tab by remember { mutableIntStateOf(0) }
+    // 设置 › 字幕 › 语音识别模型, a page of its own on top of 设置 (the phone's inModel): the tab row hides under it
+    var model by remember { mutableStateOf(false) }
     // 设置 › 翻译, where the LLM API is filled in (the home card's service row and its 去填写)
     val openTranslate = { tab = 1; settings = true }
+    // the model page's two ways in, the home card's 模型 row and the 字幕 tab's 选择模型 row (the phone's openModels)
+    val openModels = { tab = 0; settings = true; model = true }
     Column(Modifier.fillMaxSize()) {
-        if (!settings) {
+        if (model) ModelPage { model = false }
+        else if (!settings) {
             Row(Modifier.fillMaxWidth().padding(start = 22.dp, end = 14.dp, top = 18.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("同传字幕", fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Grow()
                 TextBtn("设置") { settings = true }
             }
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) { Home(startError, setStartError, openTranslate) }
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) { Home(startError, setStartError, openTranslate, openModels) }
         } else {
             Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp)) {
                 TextBtn("‹ 返回") { settings = false }
@@ -168,7 +173,7 @@ private fun MainScreen(startError: String?, setStartError: (String?) -> Unit) {
                 Seg(listOf(0 to "字幕", 1 to "翻译", 2 to "页面", 3 to "记录", 4 to "关于"), tab) { tab = it }
             }
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, bottom = 24.dp)) {
-                when (tab) { 0 -> CaptionTab(); 1 -> TranslateTab(); 2 -> PageTab(); 3 -> LogsTab(); else -> AboutTab() }
+                when (tab) { 0 -> CaptionTab(openModels); 1 -> TranslateTab(); 2 -> PageTab(); 3 -> LogsTab(); else -> AboutTab() }
             }
         }
     }
@@ -177,7 +182,7 @@ private fun MainScreen(startError: String?, setStartError: (String?) -> Unit) {
 // ---- home --------------------------------------------------------------------------------------------------
 
 @Composable
-private fun Home(startError: String?, setStartError: (String?) -> Unit, openTranslate: () -> Unit) {
+private fun Home(startError: String?, setStartError: (String?) -> Unit, openTranslate: () -> Unit, openModels: () -> Unit) {
     val running by CaptionService.runningState
     val ended by CaptionService.endedState
     Text("把视频、直播里的日语和英语，实时变成字幕", color = C.text2, fontSize = 14.sp, modifier = Modifier.padding(start = 4.dp, bottom = 14.dp))
@@ -259,6 +264,13 @@ private fun Home(startError: String?, setStartError: (String?) -> Unit, openTran
                 modifier = Modifier.weight(1f), maxLines = 1)
             Text("›", color = C.muted, fontSize = 18.sp)
         }
+        Spacer(Modifier.height(8.dp)); Divider()
+        // the speech-recognition model in use; opens 设置 › 字幕 › 语音识别模型
+        Row(Modifier.fillMaxWidth().clickable { openModels() }.padding(top = 10.dp, bottom = 2.dp, start = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("模型：" + modelSummary(), color = C.text2, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1)
+            Text("›", color = C.muted, fontSize = 18.sp)
+        }
     }
     Hint("声音只在电脑上识别，不会上传；翻译时只把识别出的文字发给你填的 LLM API。")
 }
@@ -266,7 +278,7 @@ private fun Home(startError: String?, setStartError: (String?) -> Unit, openTran
 // ---- 字幕 --------------------------------------------------------------------------------------------------
 
 @Composable
-private fun CaptionTab() {
+private fun CaptionTab(openModels: () -> Unit) {
     val sample = remember { OverlayState() }
     sample.lines.value = listOf(CaptionLine("这一句已经说完，是正式字幕", if (prefs.showJa) "（这里显示原文）" else null, true),
         CaptionLine("正在说的这一句…", if (prefs.showJa) "（原文）" else null, false))
@@ -316,6 +328,16 @@ private fun CaptionTab() {
     Row(Modifier.fillMaxWidth().padding(top = 10.dp)) {
         Grow()
         TextBtn("恢复默认") { prefs.resetStyle(); prefs.setOverlay(null, null, null, Prefs.DEFAULT_WIDTH, 0f) }
+    }
+    // the phone's 语音识别模型 section (after 恢复默认): 选择模型 is the way into the page
+    Group("语音识别模型") {
+        Row(Modifier.fillMaxWidth().clickable { openModels() }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("选择模型", fontSize = 15.sp, color = C.text)
+                Text("现在用：" + modelSummary(), fontSize = 13.sp, color = C.text2, modifier = Modifier.padding(top = 2.dp))
+            }
+            Text("›", color = C.muted, fontSize = 18.sp)
+        }
     }
 }
 
@@ -474,6 +496,7 @@ private val jevResult = mutableStateOf<String?>(null)
 private fun TranslateTab() {
     val running by CaptionService.runningState
     if (running) Note("字幕正在运行：内容类型、结合上文、去掉重复的字、LLM API（切换配置或点保存后）和 Jev 在线模型服务、key 改了从下一句开始生效；智能断句和检查译文从下次开始字幕时生效；显示方式马上生效。")
+    LocalMtGroup()
     Group("LLM API") { Byok(running); ByokAdvanced() }
     Group("内容") {
         Label("内容类型")

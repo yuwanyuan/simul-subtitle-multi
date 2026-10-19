@@ -14,12 +14,9 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
  * The engines for the models [AsrModels] manages (downloaded from a model hub, or imported from the phone): they read
  * the four files of a transducer from disk, where [SherpaAsr] reads the built-in ones from the APK's assets. Both
  * answer [Asr] exactly like [SherpaAsr] — the pipeline and [Recognition]'s loss repair cannot tell them apart.
- * [ReleasableAsr] pairs the [Asr] with the native release the session must call when it ends (the core's interface
- * has no release of its own).
+ * [ReleasableAsr] — the pair [AsrModels.engineFactory] returns, defined beside the store in :core — adds the native
+ * release the session must call when it ends: the core's [Asr] has no release of its own.
  */
-interface ReleasableAsr : Asr {
-    fun release()
-}
 
 /** A streaming (chunked) zipformer transducer on disk, run by sherpa-onnx's online recognizer. */
 class StreamingSherpaAsr(encoder: String, decoder: String, joiner: String, tokens: String, threads: Int) : ReleasableAsr {
@@ -107,26 +104,4 @@ class FileTransducerAsr(encoder: String, decoder: String, joiner: String, tokens
     }
 
     override fun release() = rec.release()
-}
-
-/** The bracketed control tokens the multilingual models emit (language tags like <ZH>, plus <blk>, <unk>…). */
-internal object AsrSymbols {
-    private val TOKEN = Regex("^</?[A-Za-z0-9_]+>$")
-    private val IN_TEXT = Regex("</?[A-Za-z0-9_]+>")
-
-    fun isSymbol(token: String): Boolean = token.matches(TOKEN)
-
-    /**
-     * sherpa-onnx keeps these tags out of the text but (for the online engine) may leave them in the token list,
-     * which would make [Recognition.of] give up on the timings. Both sides are cleaned the same way, so whatever
-     * sherpa-onnx did the arrays stay aligned with the text.
-     */
-    fun clean(text: String, tokens: Array<String>, times: FloatArray): Cleaned {
-        val keep = tokens.indices.filter { !tokens[it].matches(TOKEN) }
-        if (keep.size == tokens.size && !IN_TEXT.containsMatchIn(text)) return Cleaned(text, tokens, times)
-        val keepTimes = FloatArray(keep.size) { times[keep[it]] }
-        return Cleaned(IN_TEXT.replace(text, ""), keep.map { tokens[it] }.toTypedArray(), keepTimes)
-    }
-
-    class Cleaned(val text: String, val tokens: Array<String>, val times: FloatArray)
 }

@@ -120,6 +120,13 @@ interface Mt {
     /** One generation for a complete prompt; null when cancelled (only used on stop) or when nothing ran. */
     fun translate(prompt: String): MtResult?
     fun cancel()
+
+    /**
+     * The prompt one segment is translated with: [byokUser]'s 【前文】/【当前句】 shape, which the online services were
+     * tuned on. A translator whose model wants a template of its own overrides this — [LocalMt] does, because the
+     * Hunyuan MT model measured here answered the online prompt by echoing "【当前句】" (see LocalMt).
+     */
+    fun prompt(text: String, notes: List<String>, previous: List<String>): String = byokUser(text, notes, previous)
 }
 
 /**
@@ -598,7 +605,7 @@ class Pipeline(
     /** One MT call, logged with everything needed to replay it. */
     private fun translate(job: AsrJob, setup: Setup, attempt: Int, ja: String, notes: List<String>,
                           previous: List<String>): MtResult? {
-        val prompt = byokUser(ja, notes, previous)
+        val prompt = setup.mt.prompt(ja, notes, previous)
         // Greedy decoding with state cleared per call: the same prompt gives the same output. A final usually
         // repeats its last draft's text, so that segment's last good translation is reused instead of computed again.
         // The pipeline (and so this cache) lives for one session, with one translator.

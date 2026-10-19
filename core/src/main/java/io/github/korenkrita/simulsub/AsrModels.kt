@@ -1,13 +1,11 @@
 package io.github.korenkrita.simulsub
 
-import android.content.Context
-import android.net.Uri
-import android.os.StatFs
-import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.security.MessageDigest
 
@@ -20,14 +18,15 @@ class AsrModelDef(
     val label: String,
     /** one line for the list row: languages, size and where it comes from */
     val summary: String,
-    /** true = streaming (chunked) zipformer → [StreamingSherpaAsr]; false = offline → [FileTransducerAsr] */
+    /** true = streaming (chunked) zipformer → the platform's streaming engine; false = offline → its file transducer
+     *  (both built through [AsrModels.engineFactory], which is where the phone's AAR and the desktop's library differ) */
     val streaming: Boolean,
     val files: List<FileDef>,
     /** the model's own name where it lives (owner/repository on Hugging Face / ModelScope), shown on the download
      *  rows: the [label] is ours and friendly, this is what the model is called upstream and what lands on disk */
     val origin: String = "",
     /** the manifest's 「首选」 mark (the row's label carries it): a note for the user — the list order, which is the
-     *  manifest's order, is what still decides [firstReady]'s fallback */
+     *  manifest's order, is what still decides [AsrModels.firstReady]'s fallback */
     val preferred: Boolean = false,
 ) {
     class FileDef(val local: String, val urls: List<String>, val bytes: Long, val sha256: String?)
@@ -36,23 +35,82 @@ class AsrModelDef(
 }
 
 /**
+ * The engine behind a model's four files (encoder / decoder / joiner / tokens) plus the native release the session
+ * must call when it ends: the core's [Asr] has no release of its own, and the construction itself stays the
+ * platform's business ([AsrModels.engineFactory]) — this module knows neither the AAR nor the desktop's library.
+ */
+interface ReleasableAsr : Asr {
+    fun release()
+}
+
+/**
  * The downloadable / importable speech models and which one the captions run on. Selected in 设置 › 字幕 ›
- * 语音识别模型; a change takes effect the next time captions start ([CaptionService.loadModels] reads it there).
- * What is picked and a custom model's meta are stored next to [Prefs]' settings (same file, own keys); a model's
- * files live under [dir], one directory per model id, where nothing else of the app writes.
+ * 语音识别模型; a change takes effect the next time captions start ([SessionHost.loadModels] reads it there).
+ * What is picked and a custom model's meta are stored through [AsrPrefs] (on the phone the settings' own file, its
+ * own keys); a model's files live under [dir], one directory per model id, where nothing else of the app writes.
+ *
+ * The platform seams are installed once at start-up ([install], [engineFactory], [builtinDir]); everything below is
+ * plain JVM code, so the phone's shell and the desktop's share this object, its page logic and its messages.
  */
 object AsrModels {
-    private const val TAG = "jpsub"
-    /** the model the app was born with — still the plain default in the prefs, but a download now (not in the APK) */
+    /** the model the app was born with — on the phone a download like the rest, where a build packs it a [shipped] one */
     const val BUILTIN = "builtin"
-    /** a model the user imported from the phone (one; the next import replaces it) */
+    /** a model the user imported from the machine (one; the next import replaces it) */
     const val CUSTOM = "custom"
     /** the [CustomModel.kind] values */
     const val KIND_STREAMING = "streaming"
     const val KIND_OFFLINE = "transducer"
 
-    /** keeps what was picked and the custom model's meta beside [Prefs]' settings (one file, its own keys) */
-    private fun sp(ctx: Context) = ctx.getSharedPreferences("jpsub", Context.MODE_PRIVATE)
+    /** What the platform keeps the selection and the custom model's meta in: on the phone the SharedPreferences
+     *  ("jpsub") the settings live in too, on the desktop its settings.json. null = none imported. */
+    interface AsrPrefs {
+        /** the selected model id ([BUILTIN], [CUSTOM] or a [CATALOG] id); anything unknown reads as built-in */
+        var selected: String
+        /** the custom model's meta ([CustomModel.json]) */
+        var custom: String?
+    }
+
+    /**
+     * Hands the object everything a platform must supply, once, before the model page is built. [userAgent] is the
+     * app's version: downloads announce themselves as `SimulSub/<userAgent>`, the shape the model hubs have seen.
+     */
+    fun install(root: File, prefs: AsrPrefs, post: (() -> Unit) -> Unit, log: (String, Throwable?) -> Unit, userAgent: String) {
+        this.root = root.apply { mkdirs() }
+        this.prefs = prefs
+        this.post = post
+        this.log = log
+        this.userAgent = userAgent
+    }
+
+    private var prefs: AsrPrefs? = null
+
+    private fun store(): AsrPrefs = prefs ?: error("AsrModels.install 还没调用")
+
+    /** How a platform runs [r] on its UI thread (the phone: the main Looper); the default runs it inline. */
+    var post: ((() -> Unit) -> Unit) = { it() }
+
+    /** Where a platform writes its log (the phone: Log.i / Log.w under the "jpsub" tag); the default drops it. */
+    var log: (String, Throwable?) -> Unit = { _, _ -> }
+
+    /** the version in the downloads' `User-Agent: SimulSub/<this>` (the phone: BuildConfig.VERSION_NAME) */
+    var userAgent: String = "SimulSub"
+
+    /** every model gets its own directory under this (the phone: app-specific external storage, gone on uninstall) */
+    lateinit var root: File
+
+    /**
+     * non-null = [BUILTIN]'s files ship with the application (the desktop: the packed `models` directory, the four
+     * files under its `asr/`): [shipped] answers true, [ready] never looks at [dir], [delete] cannot take it away and
+     * [createAsr] reads the packed paths instead of a download.
+     */
+    var builtinDir: File? = null
+
+    /**
+     * Builds the engine behind a model's files: the four paths in encoder / decoder / joiner / tokens order, whether
+     * the model streams, and the thread count. The phone hands in the AAR's recognizers, the desktop its own; unset
+     * (a shell that never got that far) makes [createAsr] throw with a message the overlay can show.
+     */
+    var engineFactory: ((files: List<String>, streaming: Boolean, threads: Int) -> ReleasableAsr)? = null
 
     // -- the models the page offers. Sizes and SHA-256 taken from the repos' own metadata (ModelScope's file API for
     //    the first, setup.sh's checked list for the second) when written; a download is verified against them, or by
@@ -120,7 +178,7 @@ object AsrModels {
     /**
      * The models the page offers: [AsrCatalog]'s fetched list once there is one — the file is the truth and its
      * order is the page's — else [BUILTIN_CATALOG]. Ids, file names and byte counts are what [ready] compares, so a
-     * fetched entry that keeps them keeps the files already on the phone (an edited URL never re-downloads).
+     * fetched entry that keeps them keeps the files already on the machine (an edited URL never re-downloads).
      */
     val CATALOG: List<AsrModelDef> get() = AsrCatalog.withRemotes(BUILTIN_CATALOG)
 
@@ -129,9 +187,9 @@ object AsrModels {
     // -- selection & the custom model -----------------------------------------------------------------------------------
 
     /** the model the captions run on: [BUILTIN], [CUSTOM] or a [CATALOG] id; anything unknown reads as built-in */
-    fun selected(ctx: Context): String = sp(ctx).getString("asrModel", BUILTIN) ?: BUILTIN
+    fun selected(): String = store().selected
 
-    fun select(ctx: Context, id: String) = sp(ctx).edit().putString("asrModel", id).apply()
+    fun select(id: String) { store().selected = id }
 
     /** An imported model: its detected files (role → file name) and which engine runs it. */
     class CustomModel(val kind: String, val files: Map<String, String>) {
@@ -154,79 +212,86 @@ object AsrModels {
         }
     }
 
-    fun custom(ctx: Context): CustomModel? = CustomModel.parse(sp(ctx).getString("customAsr", null))
+    fun custom(): CustomModel? = CustomModel.parse(store().custom)
 
-    fun saveCustom(ctx: Context, model: CustomModel?) {
-        sp(ctx).edit().apply { if (model == null) remove("customAsr") else putString("customAsr", model.json()) }.apply()
-    }
+    fun saveCustom(model: CustomModel?) { store().custom = model?.json() }
 
     /** The import guesses streaming (the published zipformers are); a non-streaming transducer is a choice here. */
-    fun setCustomKind(ctx: Context, kind: String) {
-        val c = custom(ctx) ?: return
-        saveCustom(ctx, CustomModel(kind, c.files))
+    fun setCustomKind(kind: String) {
+        val c = custom() ?: return
+        saveCustom(CustomModel(kind, c.files))
     }
 
     // -- where the files live & whether they are there -------------------------------------------------------------------
 
-    /** app-specific external storage: no permission needed, gone on uninstall; internal files when that is gone */
-    fun root(ctx: Context): File = File(externalOrInternal(ctx), "asr-models").apply { mkdirs() }
-
-    private fun externalOrInternal(ctx: Context): File =
-        ctx.getExternalFilesDir(null) ?: ctx.filesDir
-
-    fun dir(ctx: Context, id: String): File = File(root(ctx), id)
+    /** one directory per model id under [root]; [BUILTIN]'s is unused where [builtinDir] ships it */
+    fun dir(id: String): File = File(root, id)
 
     /** A model is usable when every file of its definition is there with the expected size (the SHA-256 was checked
-     *  when it arrived; re-hashing hundreds of MB is too slow for a page render). */
-    fun ready(ctx: Context, def: AsrModelDef): Boolean = def.files.all {
-        val f = File(dir(ctx, def.id), it.local)
+     *  when it arrived; re-hashing hundreds of MB is too slow for a page render). A [shipped] one always is: its
+     *  files are the installation's, not a download's. */
+    fun ready(def: AsrModelDef): Boolean = shipped(def) || def.files.all {
+        val f = File(dir(def.id), it.local)
         f.isFile && f.length() == it.bytes
     }
 
-    fun customReady(ctx: Context): Boolean {
-        val c = custom(ctx) ?: return false
-        val dir = dir(ctx, CUSTOM)
+    /** true = the model's four files ship with the application: nothing to download, and [delete] cannot take it
+     *  away ([builtinDir] non-null, i.e. the desktop's packed models directory) */
+    fun shipped(def: AsrModelDef): Boolean = builtinDir != null && def.id == BUILTIN
+
+    fun customReady(): Boolean {
+        val c = custom() ?: return false
+        val dir = dir(CUSTOM)
         return c.files.values.all { name -> File(dir, name).isFile && File(dir, name).length() > 0 }
     }
 
-    /** true = the stored selection points at a usable set of files (the built-in id now is a download like the rest) */
-    fun selectionUsable(ctx: Context): Boolean = when (val id = selected(ctx)) {
-        CUSTOM -> customReady(ctx)
-        else -> def(id)?.let { ready(ctx, it) } == true
+    /** true = the stored selection points at a usable set of files (where nothing is shipped, the built-in id is a
+     *  download like the rest) */
+    fun selectionUsable(): Boolean = when (val id = selected()) {
+        CUSTOM -> customReady()
+        else -> def(id)?.let { ready(it) } == true
     }
 
     /** the model in use, as the 字幕 page's entry row names it */
-    fun labelOf(ctx: Context): String = when (val id = selected(ctx)) {
+    fun labelOf(): String = when (val id = selected()) {
         CUSTOM -> "自定义模型"
         else -> def(id)?.label ?: CATALOG[0].label
     }
 
-    /** the ready model the captions would actually run on ([createAsr]'s pick): the selection, else the first ready */
-    fun firstReady(ctx: Context): AsrModelDef? = CATALOG.firstOrNull { ready(ctx, it) }
+    /** The ready model the captions would actually run on ([createAsr]'s pick): the selection, else the first ready
+     *  in [CATALOG]'s order (the manifest's) — a shipped built-in makes this the built-in's own fallback. */
+    fun firstReady(): AsrModelDef? = CATALOG.firstOrNull { ready(it) }
 
-    /** true = some model is downloaded, so captions can start (what the home screen asks) */
-    fun anyReady(ctx: Context): Boolean = selectionUsable(ctx) || CATALOG.any { ready(ctx, it) }
+    /** true = some model is downloaded (or ships), so captions can start (what the home screen asks) */
+    fun anyReady(): Boolean = selectionUsable() || CATALOG.any { ready(it) }
 
-    /** delete a model's directory (+ the custom meta for [CUSTOM]); a selected one falls back to built-in */
-    fun delete(ctx: Context, id: String) {
-        dir(ctx, id).deleteRecursively()
-        if (id == CUSTOM) saveCustom(ctx, null)
-        if (selected(ctx) == id) select(ctx, BUILTIN)
+    /** Delete a model's directory (+ the custom meta for [CUSTOM]); a selected one falls back to built-in. A
+     *  [shipped] model owns no download directory, so nothing is deleted for it: its files stay where they came from. */
+    fun delete(id: String) {
+        if (def(id)?.let { shipped(it) } != true) dir(id).deleteRecursively()
+        if (id == CUSTOM) saveCustom(null)
+        if (selected() == id) select(BUILTIN)
     }
 
     // -- the engine for the selected model -------------------------------------------------------------------------------
 
+    /** where a [shipped] [BUILTIN]'s four files sit inside [builtinDir], in [ROLES] order (the desktop layout) */
+    private val SHIPPED = listOf("asr/encoder.int8.onnx", "asr/decoder.onnx", "asr/joiner.int8.onnx", "asr/tokens.txt")
+
+    /** where [d]'s files are read from: the packed directory for a [shipped] model, else its download directory */
+    private fun fileDir(d: AsrModelDef): File = if (shipped(d)) builtinDir!! else dir(d.id)
+
     /**
-     * Builds the ASR of the selected model for a session start ([CaptionService.loadModels]). The selection is used
-     * when its files are there, else the first downloaded model; with none of them on the phone it throws with a
-     * message for the overlay (the session reports `出错：…`) — there is no model in the APK any more to fall back to.
+     * Builds the ASR of the selected model for a session start ([SessionHost.loadModels]). The selection is used
+     * when its files are there, else the first downloaded (or shipped) model; with none of them on the machine it
+     * throws with a message for the overlay (the session reports `出错：…`) — nothing in the app itself can fall back.
      */
-    fun createAsr(ctx: Context, threads: Int): ReleasableAsr {
-        val id = selected(ctx)
+    fun createAsr(threads: Int): ReleasableAsr {
+        val id = selected()
         val d = when {
-            id == CUSTOM && customReady(ctx) -> {
-                val c = custom(ctx) ?: throw IllegalStateException("自定义模型的文件找不到了，回「设置 › 字幕 › 语音识别模型」重新导入，或选回内置模型。")
-                val dir = dir(ctx, CUSTOM)
+            id == CUSTOM && customReady() -> {
+                val c = custom() ?: throw IllegalStateException("自定义模型的文件找不到了，回「设置 › 字幕 › 语音识别模型」重新导入，或选回内置模型。")
+                val dir = dir(CUSTOM)
                 fun p(role: String): String {
                     val name = c.files[role] ?: throw IllegalStateException(
                         "自定义模型缺「${roleName(role)}」，回「设置 › 字幕 › 语音识别模型」重新导入。")
@@ -235,20 +300,28 @@ object AsrModels {
                         "自定义模型的 ${name} 文件不在了，回「设置 › 字幕 › 语音识别模型」重新导入。")
                     return f.absolutePath
                 }
-                return if (c.kind == KIND_OFFLINE) FileTransducerAsr(p("encoder"), p("decoder"), p("joiner"), p("tokens"), threads)
-                else StreamingSherpaAsr(p("encoder"), p("decoder"), p("joiner"), p("tokens"), threads)
+                return engine(listOf(p("encoder"), p("decoder"), p("joiner"), p("tokens")),
+                    c.kind != KIND_OFFLINE, threads)
             }
-            def(id)?.let { ready(ctx, it) } == true -> def(id)!!
-            // the selection's files are gone (or point at an older build's id): run on whatever is downloaded
-            else -> firstReady(ctx) ?: throw IllegalStateException(
+            def(id)?.let { ready(it) } == true -> def(id)!!
+            // the selection's files are gone (or point at an older build's id): run on whatever is available
+            else -> firstReady() ?: throw IllegalStateException(
                 "还没有语音识别模型可用：到「设置 › 字幕 › 语音识别模型」下载一个（日英模型 77 MB，多语种 339 MB，德语 71 MB），下次开始字幕时就能用。")
         }
-        val dir = dir(ctx, d.id)
-        fun p(f: AsrModelDef.FileDef) = File(dir, f.local).absolutePath
+        val modelDir = fileDir(d)
+        val files = if (shipped(d)) SHIPPED.map { File(modelDir, it).absolutePath }
+            else d.files.map { File(modelDir, it.local).absolutePath }
         // what this session will listen with (the trouble-shooting line behind "用了哪个模型" reports)
-        log(ctx, "ASR 模型：${d.label}（${if (d.streaming) "流式" else "非流式"}）· 目录 ${dir}")
-        return if (d.streaming) StreamingSherpaAsr(p(d.files[0]), p(d.files[1]), p(d.files[2]), p(d.files[3]), threads)
-        else FileTransducerAsr(p(d.files[0]), p(d.files[1]), p(d.files[2]), p(d.files[3]), threads)
+        log("ASR 模型：${d.label}（${if (d.streaming) "流式" else "非流式"}）· 目录 $modelDir", null)
+        return engine(files, d.streaming, threads)
+    }
+
+    /** the platform's engine for four file paths; an unset [engineFactory] is a shell that never got that far, and
+     *  its message goes onto the overlay like every other one here */
+    private fun engine(files: List<String>, streaming: Boolean, threads: Int): ReleasableAsr {
+        val factory = engineFactory ?: throw IllegalStateException(
+            "语音识别引擎没有接上（engineFactory 未设置），请重启应用再试。")
+        return factory(files, streaming, threads)
     }
 
     fun roleName(role: String) = when (role) {
@@ -286,8 +359,7 @@ object AsrModels {
      * space first. When it succeeds the model is put in use ([select]) — the row says 「下载并使用」, this is the
      * flow the page promises. [after] runs on the UI thread when the download settled either way, for a re-render.
      */
-    fun startDownload(ctx0: Context, def: AsrModelDef, after: () -> Unit) {
-        val ctx = ctx0.applicationContext
+    fun startDownload(def: AsrModelDef, after: () -> Unit) {
         if (downloading != null) {
             // the confirm dialog can outlive the state it was opened on (the every-800ms page rebuild): say so
             lastError = "有另一个下载正在进行，等它完成再试。"
@@ -300,10 +372,10 @@ object AsrModels {
             post(after)
             return
         }
-        if (ready(ctx, def)) return
-        val dir = dir(ctx, def.id); dir.mkdirs()
-        val need = def.files.filter { !existing(ctx, def, it) }.sumOf { it.bytes }
-        val free = StatFs(externalOrInternal(ctx).path).availableBytes
+        if (ready(def)) return
+        val dir = dir(def.id); dir.mkdirs()
+        val need = def.files.filter { !existing(def, it) }.sumOf { it.bytes }
+        val free = root.usableSpace
         if (need + SPACE_MARGIN > free) {
             lastError = "空间不够：还需要 ${mb(need + SPACE_MARGIN - free)}，模型本身要 ${mb(need)}。删掉一些东西或换个模型再试。"
             post(after)
@@ -320,21 +392,21 @@ object AsrModels {
                 for ((idx, f) in def.files.withIndex()) {
                     d.fileIdx = idx
                     if (d.stopped) break
-                    if (existing(ctx, def, f)) { d.doneBytes += f.bytes; continue }
-                    fetch(ctx, f, File(dir, f.local + ".part"), d, md)
+                    if (existing(def, f)) { d.doneBytes += f.bytes; continue }
+                    fetch(f, File(dir, f.local + ".part"), d, md)
                     if (d.stopped) break
                     if (!File(dir, f.local + ".part").renameTo(File(dir, f.local))) throw IOException("保存文件失败")
                 }
                 if (d.stopped) return@Thread
                 // a file that failed the checks never got here (fetch throws) → nothing unverified stays behind
-                select(ctx, def.id)
-                log(ctx, "模型下载完成，已选用：${def.label}")
+                select(def.id)
+                log("模型下载完成，已选用：${def.label}", null)
             } catch (e: Throwable) {
                 if (!d.stopped) {
                     d.error = e.message ?: "下载失败"
                     lastError = "「${def.label}」下载失败：${d.error}"
                 }
-                log(ctx, "模型下载失败", e)
+                log("模型下载失败", e)
             } finally {
                 // sweep what a failed or cancelled run leaves: .part files always, and a wrongly sized final file of
                 // this run (an earlier run's verified files stay — the next attempt skips them)
@@ -356,9 +428,9 @@ object AsrModels {
     @Volatile var lastError: String? = null; private set
 
     /** A file already on disk with the right size; the `.part` of an interrupted earlier run never counts. */
-    private fun existing(ctx: Context, def: AsrModelDef, f: AsrModelDef.FileDef): Boolean {
-        File(dir(ctx, def.id), f.local + ".part").delete()
-        val file = File(dir(ctx, def.id), f.local)
+    private fun existing(def: AsrModelDef, f: AsrModelDef.FileDef): Boolean {
+        File(dir(def.id), f.local + ".part").delete()
+        val file = File(dir(def.id), f.local)
         return file.isFile && file.length() == f.bytes
     }
 
@@ -367,19 +439,19 @@ object AsrModels {
      * HttpURLConnection only follows redirects that keep the scheme), SHA-256-ing the bytes while they go by, and
      * checking size and hash when the definition knows them. Throws with a user-readable message on anything wrong.
      */
-    private fun fetch(ctx: Context, f: AsrModelDef.FileDef, dst: File, d: Download, md: MessageDigest?) {
+    private fun fetch(f: AsrModelDef.FileDef, dst: File, d: Download, md: MessageDigest?) {
         var url = f.urls.first()
         repeat(6) {
             val c = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000; readTimeout = 60_000
                 instanceFollowRedirects = false
-                setRequestProperty("User-Agent", "SimulSub/${BuildConfig.VERSION_NAME}")
+                setRequestProperty("User-Agent", "SimulSub/$userAgent")
             }
             try {
                 when (c.responseCode) {
                     in 300..399 -> {
                         val loc = c.getHeaderField("Location") ?: throw IOException("服务器没有给出跳转地址")
-                        url = java.net.URI(url).resolve(loc).toString(); return@repeat
+                        url = URI(url).resolve(loc).toString(); return@repeat
                     }
                     200 -> {
                         md?.reset()
@@ -431,60 +503,62 @@ object AsrModels {
         }
     }
 
+    /** One file the user picked for [import]: the [name] its role is read from and it is stored as, and the way to
+     *  open its bytes (the phone: a ContentResolver document; the desktop: a local file). */
+    class Source(val name: String, val open: () -> InputStream)
+
     /**
-     * Copies the picked documents into [CUSTOM]'s directory and records their roles in the custom meta; [streaming]
+     * Copies the picked files into [CUSTOM]'s directory and records their roles in the custom meta; [streaming]
      * picks the engine (a non-streaming transducer is switched in the page with [setCustomKind]). @return what is
      * missing or blocks it (nothing starts then), or null once the copy is under way — [after] runs on the UI thread
      * when it settled: success put the custom model in use, failure leaves none and says why on the page.
      */
-    fun import(ctx0: Context, items: List<Pair<Uri, String>>, streaming: Boolean, after: () -> Unit): String? {
-        val ctx = ctx0.applicationContext
+    fun import(items: List<Source>, streaming: Boolean, after: () -> Unit): String? {
         // one download or import at a time: both settle by putting their model in use (select), and two imports
         // copying into the same directory at once interleave their files
         if (downloading != null) return "有模型正在下载，等它完成再导入。"
         if (importing) return "上一个导入还没完成，等它完成再试。"
-        val roles = LinkedHashMap<String, Pair<Uri, String>>() // role → uri + name
-        for ((uri, name) in items) roleOf(name)?.let { roles[it] = uri to name }
+        val roles = LinkedHashMap<String, Source>()
+        for (item in items) roleOf(item.name)?.let { roles[it] = item }
         val missing = ROLES.filter { it !in roles }
         if (missing.isNotEmpty())
             return "没认出全部四个文件，缺：${missing.joinToString("、") { roleName(it) }}。" +
                 "请选择模型原本的四个文件（encoder*.onnx、decoder*.onnx、joiner*.onnx、tokens.txt）。"
-        val duplicated = ROLES.filter { role -> items.count { roleOf(it.second) == role } > 1 }
+        val duplicated = ROLES.filter { role -> items.count { roleOf(it.name) == role } > 1 }
         if (duplicated.isNotEmpty())
             return "选重了：${duplicated.joinToString("、") { roleName(it) }} 各选一个就够，请重新选四个正确的文件。"
         importing = true
         Thread({
             try {
-                val dir = dir(ctx, CUSTOM)
+                val dir = dir(CUSTOM)
                 dir.deleteRecursively(); dir.mkdirs()
                 val names = LinkedHashMap<String, String>()
                 for (role in ROLES) {
-                    val (uri, name) = roles[role]!!
                     // copied one per role, so an unreadable file leaves the previous import deleted and the meta not
                     // written — the session falls back to another model, and the catch below says what went wrong
-                    names[role] = copy(ctx, uri, dir, name)
+                    names[role] = copy(roles[role]!!, dir)
                 }
-                saveCustom(ctx, CustomModel(if (streaming) KIND_STREAMING else KIND_OFFLINE, names))
-                select(ctx, CUSTOM)
+                saveCustom(CustomModel(if (streaming) KIND_STREAMING else KIND_OFFLINE, names))
+                select(CUSTOM)
                 // smoke-build once NOW, not at the next caption start: a wrong file can only fail here with a
                 // message on the page, and (a bad engine config aside) sherpa-onnx's native code exits the whole
                 // process without saying anything, which the user would only see as captions never starting
                 try {
-                    createAsr(ctx, threads = 2).release()
+                    createAsr(threads = 2).release()
                 } catch (e: Throwable) {
-                    saveCustom(ctx, null)
-                    select(ctx, BUILTIN)
+                    saveCustom(null)
+                    select(BUILTIN)
                     lastError = "导入的模型没能通过构建检验（${e.message ?: "引擎创建失败"}），已回到默认。换对「识别方式」或换文件再试。"
-                    log(ctx, "自定义模型导入冒烟检验失败", e)
-                    runCatching { dir.deleteRecursively() } // a model that cannot build is not kept on the phone
+                    log("自定义模型导入冒烟检验失败", e)
+                    runCatching { dir.deleteRecursively() } // a model that cannot build is not kept around
                 }
             } catch (e: Throwable) {
-                saveCustom(ctx, null)
+                saveCustom(null)
                 // the copy above deleted the previous import's files: a selection pointing at them falls back
-                if (selected(ctx) == CUSTOM) select(ctx, BUILTIN)
+                if (selected() == CUSTOM) select(BUILTIN)
                 lastError = "导入失败：${e.message ?: "未知原因"}，请重新选四个文件再试。"
-                log(ctx, "自定义模型导入失败", e)
-                runCatching { dir(ctx, CUSTOM).deleteRecursively() } // half-copied files would sit there unlisted
+                log("自定义模型导入失败", e)
+                runCatching { dir(CUSTOM).deleteRecursively() } // half-copied files would sit there unlisted
             } finally {
                 importing = false
                 post(after)
@@ -493,16 +567,15 @@ object AsrModels {
         return null
     }
 
-    private fun copy(ctx: Context, uri: Uri, dir: File, name: String): String {
-        val dst = File(dir, name)
-        ctx.contentResolver.openInputStream(uri)?.use { input -> dst.outputStream().use { input.copyTo(it) } }
-            ?: throw IOException("打不开所选的文件 $name（可能移动了位置）")
-        if (dst.length() == 0L) { dst.delete(); throw IOException("所选的文件 $name 读出来是空的") }
-        return name
+    /** copies one picked file into [dir] under its own name; a file that cannot be opened or reads empty throws */
+    private fun copy(source: Source, dir: File): String {
+        val dst = File(dir, source.name)
+        val input = runCatching { source.open() }
+            .getOrElse { throw IOException("打不开所选的文件 ${source.name}（可能移动了位置）", it) }
+        input.use { i -> dst.outputStream().use { o -> i.copyTo(o) } }
+        if (dst.length() == 0L) { dst.delete(); throw IOException("所选的文件 ${source.name} 读出来是空的") }
+        return source.name
     }
-
-    private fun post(r: () -> Unit) = android.os.Handler(android.os.Looper.getMainLooper()).post(r)
-    private fun log(ctx: Context, m: String, e: Throwable? = null) = if (e == null) Log.i(TAG, m) else Log.w(TAG, m, e)
 
     /** the room a download wants beyond the model's own bytes (the .part dupe of the biggest file, plus slack) */
     private const val SPACE_MARGIN = 300L * 1024 * 1024
