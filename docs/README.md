@@ -11,3 +11,4 @@
 | [privacy.md](privacy.md) | 本地留存与网络发送的数据边界、Android / macOS / Windows 三端权限用途与密钥加密方式 |
 | [logs.md](logs.md) | JSONL 会话使用记录格式、Android `logcat` 各阶段延迟指标 |
 | [build.md](build.md) | 编译环境、内置模型校验、macOS 端到端回归测试、三端打包与正式版发布流程 |
+| [emulator.md](emulator.md) | 在本机 Android 模拟器上跑起来、点起来、取到证据：启停与就绪判断、截图坐标换算、adb 路径坑、`run-as` 改偏好、喂可被捕获的测试音频、崩溃与黑屏判据 |
