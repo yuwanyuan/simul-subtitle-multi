@@ -211,8 +211,7 @@ private fun Home(startError: String?, setStartError: (String?) -> Unit, openTran
         when {
             running && ended -> status(C.warn, "字幕已经停了", "原因写在字幕框里。点下面的按钮关掉它，然后可以重新开始。")
             running && paused -> status(C.warn, "字幕已暂停", "声音不再识别，字幕窗口保留。点「继续字幕」接着出字幕。")
-            running -> status(C.ok, "字幕正在显示", "回到你要看的视频或直播就行。
-点一下字幕，可以调大小、暂停或停止；关掉这个窗口字幕也会继续，${if (isWindows) "任务栏右下角" else "菜单栏"}的图标里可以停止。")
+            running -> status(C.ok, "字幕正在显示", "回到你要看的视频或直播就行。\n点一下字幕，可以调大小、暂停或停止；关掉这个窗口字幕也会继续，${if (isWindows) "任务栏右下角" else "菜单栏"}的图标里可以停止。")
             // a downloaded local model with the switch still off: the one thing missing is the switch, not an API
             !ready && LlmModels.anyReady() -> status(C.warn, "本地模型已经下载，打开就能用", "到「设置 › 翻译 › 本地翻译」打开「用本地模型翻译」，不用填 LLM API。")
             !ready -> status(C.warn, "先填翻译用的 LLM API", "填好服务地址、模型 ID 和 API Key，点「测试连接」，就能开始；也可以到「设置 › 翻译 › 本地翻译」下载一个本地模型，离线翻译。声音识别已经装在 App 里，不用下载。")
