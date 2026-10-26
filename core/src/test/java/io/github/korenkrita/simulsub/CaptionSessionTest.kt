@@ -411,8 +411,7 @@ class CaptionSessionTest {
             host.prefs.jevOn = true
             host.prefs.jevProvider = JevProvider.CUSTOM
             // the first service answers, but not in Jev's shape: its light turns red (the service in use failed)
-            host.prefs.jevUrl = "http://127.0.0.1:${server.localPort}"
-            host.prefs.jevModel = "jev-mine"
+            host.prefs.custom = JevCustom(JevProtocol.SYSTEMONE, "http://127.0.0.1:${server.localPort}", "jev-mine") to ""
             val s = CaptionSession(host)
             host.post { s.start() }
             val t0 = monoMs()
@@ -420,8 +419,8 @@ class CaptionSessionTest {
             assertEquals(ServiceStatus.Light.RED, host.jevLight)
             // the user enters another service's address while running: nothing has been asked of it yet, so its light
             // must start over (grey), not keep the failed old address's red
-            host.prefs.jevUrl = "http://127.0.0.1:${hang.localPort}"
-            s.prefChanged("jevUrl")
+            host.prefs.custom = JevCustom(JevProtocol.SYSTEMONE, "http://127.0.0.1:${hang.localPort}", "jev-mine") to ""
+            s.prefChanged("jevCustom")
             val t1 = monoMs()
             while (host.jevLight != ServiceStatus.Light.GREY && monoMs() - t1 < 10_000) Thread.sleep(20)
             assertEquals(ServiceStatus.Light.GREY, host.jevLight)
