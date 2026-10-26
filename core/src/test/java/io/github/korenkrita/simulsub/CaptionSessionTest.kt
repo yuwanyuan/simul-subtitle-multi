@@ -167,7 +167,9 @@ class CaptionSessionTest {
         }
         override fun openAudio(log: SessionLog?) = source ?: audio
         override fun show(lines: List<CaptionLine>, diag: String?, mtLight: ServiceStatus.Light, jevLight: ServiceStatus.Light,
-                          mtReason: String?, jevReason: String?) { this.lines = lines; this.diag = diag; diag?.let { diags += it } }
+                          mtReason: String?, jevReason: String?) {
+            this.lines = lines; this.diag = diag; diag?.let { diags += it }; this.jevLight = jevLight
+        }
         val diags = java.util.concurrent.CopyOnWriteArrayList<String>()
         override fun ended() = ended.countDown()
         override fun finished() = finished.countDown()
@@ -406,14 +408,15 @@ class CaptionSessionTest {
         // the address switched to: it accepts and never answers, so its own outcome cannot arrive while the light is read
         val hang = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
         try {
-            val audio = FakeAudio(1.5f, null, endsByItself = false).apply { gateAt = (2.5f * 16_000).toInt() }
-            val host = FakeHost(audio)
-            host.prefs.jevOn = true
+            val audio = ScriptedAudio()
+            val host = FakeHost(FakeAudio(0f, null), source = audio)
+            host.prefs.jevCheck = true
             host.prefs.jevProvider = JevProvider.CUSTOM
             // the first service answers, but not in Jev's shape: its light turns red (the service in use failed)
             host.prefs.custom = JevCustom(JevProtocol.SYSTEMONE, "http://127.0.0.1:${server.localPort}", "jev-mine") to ""
             val s = CaptionSession(host)
             host.post { s.start() }
+            audio.push(false, 512); audio.push(true, 1500); audio.push(false, 2000)
             val t0 = monoMs()
             while (host.jevLight != ServiceStatus.Light.RED && monoMs() - t0 < 20_000) Thread.sleep(20)
             assertEquals(ServiceStatus.Light.RED, host.jevLight)
@@ -424,7 +427,6 @@ class CaptionSessionTest {
             val t1 = monoMs()
             while (host.jevLight != ServiceStatus.Light.GREY && monoMs() - t1 < 10_000) Thread.sleep(20)
             assertEquals(ServiceStatus.Light.GREY, host.jevLight)
-            audio.more.countDown()
             host.post { s.stop() }
             assertTrue(host.released.await(10, TimeUnit.SECONDS))
         } finally {
