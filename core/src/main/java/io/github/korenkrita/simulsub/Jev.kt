@@ -233,14 +233,15 @@ class Jev(
         fun validKey(k: String) = k.isNotEmpty() && k.all { it in '!'..'~' }
 
         /**
-         * 测试连接 of a custom service: one real question (the sentence-end one), with time to spare. Returns (ok, the
-         * line the settings show). Blocks; call it off the UI thread.
+         * 测试连接 of a custom service: one real question (the sentence-end one), with the session's own deadline
+         * (2 s): a service that only answers slower than a session's request would test as usable here and then never
+         * light up in a session. Returns (ok, the line the settings show). Blocks; call it off the UI thread.
          */
         fun test(c: JevCustom, key: String, clock: () -> Long = ::monoMs): Pair<Boolean, String> {
             val url = c.endpoint().let { (bad, u) -> u ?: return false to (bad ?: "地址格式不对") }
             if (c.model.isEmpty()) return false to "还没填模型"
             // [clock]: the session's (SessionHost.clock), as a 429 pauses the service for both
-            val r = Jev(JevProvider.CUSTOM, key, 15_000, url = url, model = c.model, clock = clock).unfinished("今日はいい天気ですね")
+            val r = Jev(JevProvider.CUSTOM, key, 2_000, url = url, model = c.model, clock = clock).unfinished("今日はいい天気ですね")
             return when {
                 r.noul != null -> true to "连上了：${r.ms} ms，回答正常"
                 r.error == "bad key" -> false to "key 里有空格、换行或特殊字符，请重新复制"
