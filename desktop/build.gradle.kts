@@ -24,15 +24,6 @@ val macE2e = rootProject.layout.projectDirectory.dir("tools/mac-e2e/build")
 // models) and sherpa-jvm.jar
 val dist = (findProperty("simulsub.dist") as String?)?.let { file(it) }
 
-// This project's own repositories: the settings' google() + mavenCentral() plus the mirror, which is what makes the
-// local translation binding reachable from here — its jar is 76 MB and Central measured 30–150 KB/s from this machine,
-// the mirror ~25 MB/s. google() stays first (compose/androidx), Central stays last as the fallback.
-repositories {
-    google()
-    maven("https://maven.aliyun.com/repository/public/")
-    mavenCentral()
-}
-
 dependencies {
     implementation(project(":core"))
     implementation(compose.desktop.currentOs)
@@ -40,9 +31,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // Windows: the keys, encrypted with DPAPI (Crypt32Util)
     implementation("net.java.dev.jna:jna-platform:5.14.0")
-    // 本地翻译: llama.cpp's JVM bindings run the Hunyuan MT GGUF in this process; the jar carries the prebuilt native
-    // libraries of every platform (jllama.dll / libjllama.dylib), so there is nothing to install next to the app
-    implementation("net.ladenthin:llama:5.1.0")
     implementation(files((dist ?: macE2e.asFile).resolve("sherpa-jvm.jar")))
     // Prefs is exercised against its own settings file and keychain service (see PrefsTest)
     testImplementation("junit:junit:4.13.2")

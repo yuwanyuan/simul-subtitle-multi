@@ -31,12 +31,6 @@ interface SessionPrefs {
     fun byokService(): ByokService?
     fun byokVariant(url: String, model: String): String?
     fun setByokVariant(url: String, model: String, name: String?)
-    /**
-     * The PC's local engine ([LocalMt]): non-null = this session translates with the in-process GGUF and the BYOK
-     * fields are not looked at. The getter is the platform's (the desktop's LocalLlm loads the model); a session
-     * reads it once, so one engine serves the whole run.
-     */
-    val localGen: TextGen? get() = null
 }
 
 /** The speech models a session runs on, released by its session thread when it ends. */
@@ -216,16 +210,8 @@ class CaptionSession(private val host: SessionHost) {
             val order = SetupOrder<ByokService, ByokTranslator.ThinkingOff?>(cancelLock).also { this.order = it }
             val v0 = order.version()
             val s0 = Snap(prefs, wantJev)
-            // Read once: on the PC the getter builds the local engine (loading the GGUF takes seconds), and one
-            // engine serves the whole session, however often the running setup is rebuilt below.
-            val localGen = prefs.localGen
-            if (localGen == null && (s0.byok == null || s0.byok.model.isEmpty())) {
+            if (s0.byok == null || s0.byok.model.isEmpty()) {
                 setStatus("⚠ LLM API 还没填完整（地址、模型 ID），请到设置「翻译」里填好"); host.logWarn("byok incomplete"); return
-            }
-            // A local session does not look at the BYOK fields, but its model file must still be there: the engine
-            // was built from it, and a file deleted since would fail every sentence instead of saying so here.
-            if (localGen != null && LlmModels.def(LlmModels.selected())?.let { LlmModels.ready(it) } != true) {
-                setStatus("⚠ 本地翻译模型的文件找不到了，到「设置 › 翻译 › 本地翻译」重新下载。"); host.logWarn("local mt model missing"); return
             }
             val t0 = monoMs()
             val m = host.loadModels(ASR_THREADS).also { models = it }
@@ -247,7 +233,7 @@ class CaptionSession(private val host: SessionHost) {
                 .onFailure { host.logWarn("transcript", it); transcriptFailed = true; refresh() }.getOrNull()
             sl?.write(mapOf("ev" to "session_start", "app" to host.appVersion,
                 "jev_requested" to jevEnds, "jev_ends" to jevEnds, "jev_check" to jevCheck, "final_only" to prefs.finalOnly,
-                "mt_engine" to if (localGen != null) "local" else "byok",
+                "mt_engine" to "byok",
                 "load_ms" to (t2 - t0)) + host.deviceInfo(s0.byok?.url) + s0.log())
 
             /**
@@ -298,8 +284,8 @@ class CaptionSession(private val host: SessionHost) {
                 }
             }
 
-            /** A built setup, the warnings it comes with, the BYOK service it really uses (null: local) and its log entry. */
-            class Built(val setup: Setup, val notice: String, val byok: ByokService?, val byokEv: Map<String, Any?>)
+            /** A built setup, the warnings it comes with, the BYOK service it really uses and its log entry. */
+            class Built(val setup: Setup, val notice: String, val byok: ByokService, val byokEv: Map<String, Any?>)
 
             /**
              * The translator for BYOK and the service it uses. [wait]: probe a new service here (the start); otherwise
@@ -352,16 +338,7 @@ class CaptionSession(private val host: SessionHost) {
             /** A setup for [s] and the warnings it comes with; null: stopped, or overtaken (the newer change builds). */
             fun make(s: Snap, version: Int, wait: Boolean): Built? {
                 val notices = mutableListOf<String>()
-                // Local: the session's one engine wrapped for the pipeline. The local model wants its own prompt
-                // forms (LocalMt builds them from the scene and the target — it ignored the BYOK system prompt,
-                // measured), so the BYOK-side system is only logged here. No probe and no service: the BYOK-only
-                // parts below see nulls and stay idle. BYOK: the translator, as before.
-                val chosen: Triple<Mt, ByokService?, Map<String, Any?>> = if (localGen != null) {
-                    val system = byokSystem(s.scene, s.source, s.target)
-                    Triple(LocalMt(localGen, s.scene, s.target), null,
-                        mapOf("variant" to null, "system" to system, "mt_url" to null, "mt_model" to null))
-                } else byok(s, version, wait, notices) ?: return null
-                val (mt, used, ev) = chosen
+                val (mt, used, ev) = byok(s, version, wait, notices) ?: return null
                 // one Jev client for both features; no key = both paused until one is entered
                 // pauses count deep sleep: one kept across sessions ends at the time the service named
                 val judge = s.jevKey?.let {
@@ -388,7 +365,7 @@ class CaptionSession(private val host: SessionHost) {
             while (!stopping && (built == null || !order.publish(v) { true })) {
                 v = order.version()
                 val s = Snap(prefs, wantJev, firstSnap.byok)
-                if (localGen == null && (s.byok == null || s.byok.model.isEmpty())) return
+                if (s.byok == null || s.byok.model.isEmpty()) return
                 firstSnap = s
                 built = make(s, v, wait = true)
             }
@@ -450,9 +427,8 @@ class CaptionSession(private val host: SessionHost) {
                     val v = order.version()
                     if (v == published || stopping) return@Runnable
                     val s = Snap(prefs, wantJev, inUse)
-                    // BYOK is only switched by "保存", which checks the fields; a half-filled one keeps the current
-                    // setup (a local session never looks at those fields, so a rebuild here is never dropped for them)
-                    if (localGen == null && (s.byok == null || s.byok.model.isEmpty())) return@Runnable
+                    // BYOK is only switched by "保存", which checks the fields; a half-filled one keeps the current setup
+                    if (s.byok == null || s.byok.model.isEmpty()) return@Runnable
                     val b = make(s, v, wait = false) ?: return@Runnable
                     // the version check and the publication under the lock every change bumps the version under: a newer
                     // change or the session end either comes before (this setup is dropped) or after (it rebuilds again)

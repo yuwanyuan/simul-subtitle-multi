@@ -100,11 +100,6 @@ class Prefs internal constructor(private val file: File) : SessionPrefs {
     /** 语音识别模型：默认内置模型；导入的模型元数据（JSON）与它同存这里 */
     var asrModel: String get() = str("asrModel") ?: AsrModels.BUILTIN; set(v) = put("asrModel" to v)
     var customAsr: String? get() = str("customAsr"); set(v) = put("customAsr" to v)
-    /** 本地翻译：用本机模型（设置 › 翻译 › 本地翻译）；LlmModels 选中的模型 id 同存这里 */
-    var localMtOn: Boolean get() = bool("localMtOn", false); set(v) = put("localMtOn" to v)
-    var llmModel: String get() = str("llmModel").orEmpty(); set(v) = put("llmModel" to v)
-    /** 本地翻译开着时把进程内引擎交给会话；没有可用模型时返回 null（会话回退到在线 LLM API）。 */
-    override val localGen: TextGen? get() = if (localMtOn) LocalLlm.current() else null
 
 
     override fun jevKey(p: JevProvider): String? { rev.intValue; return Keychain.get("jevKey:${p.name}") }

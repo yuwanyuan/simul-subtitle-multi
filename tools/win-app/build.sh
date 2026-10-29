@@ -39,22 +39,6 @@ VER="$(sed -nE 's/.*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts)"
 APP=desktop/build/compose/binaries/main/app/SimulSub
 [ -f "$APP/SimulSub.exe" ] && [ -f "$APP/app/resources/sysaudio.exe" ] && [ -f "$APP/app/resources/sherpa-onnx-jni.dll" ] \
   || { echo "the app folder is missing a file"; exit 1; }
-
-# 5. the local translation binding's jar carries native libraries for every platform it supports (76 MB: Linux,
-# Android, Mac, three Windows architectures); the app loads this machine's only, so the app-image keeps just
-# Windows/x86_64 (~40 MB smaller). jar extracts and recreates it, the manifest passed through by hand, and the
-# rebuilt file replaces the original in place — the paths in app/SimulSub.cfg stay valid.
-BIND="$(ls "$ROOT/$APP/app"/llama-*.jar 2>/dev/null | head -1 || true)"
-if [ -n "$BIND" ]; then
-  T="$W/bind"; rm -rf "$T"; mkdir -p "$T"
-  (cd "$T" && "$JAVA_HOME/bin/jar" --extract --file "$(cygpath -w "$BIND")")
-  rm -rf "$T/net/ladenthin/llama/Linux" "$T/net/ladenthin/llama/Linux-Android" "$T/net/ladenthin/llama/Mac" \
-         "$T/net/ladenthin/llama/Windows/x86" "$T/net/ladenthin/llama/Windows/aarch64"
-  (cd "$T" && "$JAVA_HOME/bin/jar" --create --file "$(cygpath -w "$BIND.new")" --manifest META-INF/MANIFEST.MF .)
-  [ -f "$BIND.new" ] || { echo "repacking $BIND failed"; exit 1; }
-  mv -f "$BIND.new" "$BIND"
-fi
-
 STAGE="$W/zip"; rm -rf "$STAGE"; mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ZIP="desktop/build/compose/binaries/main/SimulSub-$VER-windows-x64.zip"

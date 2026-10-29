@@ -61,7 +61,5 @@ fun main() {
     Runtime.getRuntime().addShutdownHook(Thread { CaptionService.killCapture() })
     // the speech models (the core's AsrModels): installed before the window, whose model page and session read them
     installAsr()
-    // the local translation models (the core's LlmModels): the same window's 本地翻译 page and the session's engine read them
-    installLlm()
     app()
 }
