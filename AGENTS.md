@@ -127,15 +127,15 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 - **引擎两边不能互抄**：安卓用 AAR 的 Kotlin API（`app/AsrEngines.kt` 的 `StreamingSherpaAsr` / `FileTransducerAsr`），PC 用 JVM jar 的 builder API（`desktop/AsrEngines.kt` 的同名两个类，`OfflineRecognizerConfig.builder()` 那套）。两边的 `modelType` 都必须留空串——理由见各自注释（硬编码会 `_Exit()` 掉进程）。
 - PC 端入口：首页「模型：…」行 与 设置 › 字幕 的「选择模型」行 → 整屏模型页（「‹ 返回」回到字幕页）。
 
-## PC 端本地翻译（混元 HY-MT1.5-1.8B，2026-10-20 起）
+## PC 端本地翻译：走 OpenAI 格式（2026-10-20 定稿，进程内 GGUF 方案已撤）
 
-PC 的「翻译」页多了一种翻译方式：**在本机进程内跑混元翻译模型**，不联网、不要 API Key、用户不装任何东西。
+本地（离线）翻译**不再有专门的代码路径**：要本地翻，就在「LLM API」里填一个 OpenAI 兼容端点——本机或局域网的 LM Studio / Ollama / `llama-server` 都行，地址填 `http://127.0.0.1:端口/v1` 的形状（`ByokTranslator.chatUrl` 本来就接受 http 的本机/局域网地址，翻译页的提示里写了）。这与手机端完全同构：两端都只有 BYOK 一条翻译链路。
 
-- **运行时**：`net.ladenthin:llama:5.1.0`（llama.cpp 的 JVM 绑定，jar 自带各平台预编译原生库）→ `desktop/LocalLlm.kt` 实现 core 的 `TextGen`。实测（本机 JDK 17 / Windows）：1.8B Q4_K_M 加载 1.3 s、生成 ~34 tok/s，一句字幕 0.46–0.9 s。**打包时 `tools/win-app/build.sh` 会把 jar 里其它平台的原生库删掉**（只留 `Windows/x86_64`：76 MB → 7.4 MB，整包 137 MB）——那段用 `jar --extract/--create` 手工传 manifest，路径必须绝对（相对的会在 `cd` 后解析不到，踩过一次）；mac 侧暂未做同样处理（没 Mac 可验），要做就是同一个套路换成 `Mac/aarch64`。
-- **模型清单**：`core/LlmModels.kt`（同样是数据，改它不改代码）。现有两条：`hy-mt15-18b-iq2m`（666 MB，第三方 i1 量化，**首选**）与 `hy-mt15-18b-q4km`（1.13 GB，官方）。下载到 `%APPDATA%\SimulSub\llm\<id>\`；「下载」完成自动选用，开关是 `Prefs.localMtOn`，引擎只在会话开始时读一次。
-- **为什么没有 440 MB 那条**（最初的需求是「混元的 1.5B、400 多 MB」）：HF 上混元自家的 `1.25bit`（440 MB，Sherry/STQ1_0）与 `2bit`（574 MB，SEQ）都用腾讯私有量化格式，**llama.cpp 读不了**——加载停在 `tensor 'blk.0.attn_k_norm.weight' has offset …, expected …`（两种都实测过；绑定里的 llama.cpp 是 2026-08-29 版，而 STQ1_0 的 llama.cpp PR #22836 / #27377 截至 2026-10-19 仍未合并）。第三方 IQ1_S（481 MB）与 IQ2_XXS（560 MB）能加载但译文是坏的（实测 `上述现象，若取消则，皆都能是？需要答案。`、`翻译如下，但：`）。**IQ2_M 是实测能翻译的最小档**；等 llama.cpp 合并 STQ1_0，把 440 MB 加回清单只是一行数据。
-- **提示词（本项目最反直觉的一处）**：混元 MT 是专用翻译模型，喂它会话那套 `【前文】/【当前句】` 提示词时，它把「【当前句】」**当译文回显**（实测，空 system 与真实 `byokSystem` 都试过）。所以 `LocalMt` 拿着 `Scene` 与 `Target` 自己按模型卡构造三种模板（通用 / 术语干预 / 上下文），并且**不发 system 消息**。为此 `Mt` 接口多了可覆写的 `prompt(text, notes, previous)`（`Pipeline` 改用它取提示词），默认实现仍是 `byokUser`——在线链路一字未改，`LocalMtTest` 有一条用例锁住这个默认。
-- **生效时机**：与别的翻译设置一样，「用本地模型翻译」**从下次开始字幕时生效**；模型没下载好时 `Prefs.localGen` 返回 null，会话自动回退到在线 LLM API（不会因为没填 API 而起不来）。
+**为什么撤掉进程内 GGUF 方案**（2026-10-20 试过一整天后回退，测量都在当时的提交正文里）：
+
+- **速度**：1.8B Q4_K_M 在本机 CPU 上 ~34 tok/s，一句字幕 0.46–0.9 s——单看能跟上，但加上识别与界面，实际体感"太差"（用户的原话），远不如一个正常的在线/本机 OpenAI 服务。
+- **小体积档全是坑**：混元自家的 440 MB（1.25bit/Sherry）与 574 MB（2bit/SEQ）**llama.cpp 读不了**（tensor offset mismatch；STQ1_0 的 PR #22836/#27377 当时未合并）；第三方 IQ1_S/IQ2_XXS 能加载但译文是坏的；唯一能用的 IQ2_M 也有 666 MB 且质量一般。
+- **撤的方式**：`net.ladenthin:llama` 依赖、`core/{LlmModels,LocalMt}.kt`、`desktop/{LocalLlm,LlmStore,TranslateLocal}.kt`、`Mt.prompt()` 接缝、`CaptionSession` 的 `localGen`、`Prefs` 的 `localMtOn/llmModel`、`tools/win-app/build.sh` 的 jar 瘦身段，全部回到上游形状；`App.kt` 只留 ASR 的「模型」行与模型页。`settings.json` 里残留的 `localMtOn`/`llmModel` 键是无害的孤儿，应用不会读。
 
 ## 代码与修改规范（AI 协作硬规则）
 
