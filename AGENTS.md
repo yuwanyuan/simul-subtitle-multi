@@ -143,7 +143,7 @@ gh release create v<x.y.z> /tmp/ci-apk/SimulSub-*.apk -R yuwanyuan/simul-subtitl
 
 - **文件与接缝**：磁贴的全部逻辑在新文件 `app/src/main/java/io/github/korenkrita/simulsub/CaptionTileService.kt`。现有文件只有三处登记：`AndroidManifest.xml` 的 service 声明（`QS_TILE` intent filter + `BIND_QUICK_SETTINGS_TILE`；图标复用 `ic_stat_caption`、标签复用 `app_name`），以及 `MainActivity` 的 `onNewIntent`、`onResume` 里一行 `consumeTileStart()`、`consumeTileStart()` 本身。`:core`、`CaptionService`、`Prefs`、构建脚本都不动——上游同步时冲突面只在这三处。
 - **为什么点磁贴还会回到 App**：屏幕共享授权（MediaProjection）每次开始都必须弹出系统对话框，且只能由 Activity 发起，磁贴绕不过去。所以未运行时磁贴用 `startActivityAndCollapse` 打开 `MainActivity` 并带 `EXTRA_START_CAPTIONS`，由首页原有的 `start()` 链完成检查（BYOK → 权限 → 授权框 → `CaptionService.start` → `moveTaskToBack`）。磁贴与「开始字幕」按钮因此只有一份判断逻辑，不会漂移。
-- **状态与语义**：磁贴高亮读 `CaptionService.running`，与通知栏、首页同一个标志；运行中（含暂停或已结束）点磁贴 = 停止，暂停/继续仍在通知栏。`onNewIntent` 里的消费用 `main.post`：singleTask 的二次启动可能先于 `onResume` 到达，而后台发起的启动在 Android 10+ 会被拒。
+- **状态与语义**：磁贴高亮读 `CaptionService.running`，与通知栏、首页同一个标志；运行中（含暂停或已结束）点磁贴 = 停止，暂停/继续仍在通知栏。`running` 变化时 `CaptionService` 调 `CaptionTileService.requestUpdate()`（`TileService.requestListeningState`）：面板收起后系统不会再读磁贴，不主动请求就会停在点击前的熄灭态（实测第一版就是这个现象）。`onNewIntent` 里的消费用 `main.post`：singleTask 的二次启动可能先于 `onResume` 到达，而后台发起的启动在 Android 10+ 会被拒。
 - **验证**：`./gradlew :app:assembleDebug`；release 开了 R8，`app/build/outputs/mapping/release/mapping.txt` 里应仍有 `CaptionTileService`（manifest 组件不会被裁）。设备上可用 `adb shell dumpsys package | grep -A3 CaptionTileService` 确认安装后的服务声明。
 
 ## 代码与修改规范（AI 协作硬规则）
