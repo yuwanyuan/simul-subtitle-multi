@@ -28,6 +28,21 @@
             android:name=".CaptionService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+        <!-- 通知栏快捷按钮: the QS tile is listed in the shade's 添加 screen because of this declaration alone; a tap starts
+             the captions through MainActivity's own start chain, or stops the running ones (see CaptionTileService) -->
+        <service
+            android:name=".CaptionTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_caption"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.ACTIVE_TILE"
+                android:value="true" />
+        </service>
         <!-- shares only the verified update APK cache with the system installer -->
         <provider
             android:name=".UpdateFileProvider"

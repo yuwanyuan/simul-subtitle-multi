@@ -205,6 +205,17 @@ class MainActivity : Activity() {
         configRecreated = false; manualInterrupted = false
     }
 
+    /**
+     * A 通知栏快捷按钮 tap while this screen already exists (singleTask): the request [onResume] consumes on a launch.
+     * Posted: this can arrive before the bring-to-front's onResume, and a start needs a resumed screen (a start from
+     * the background is refused on 10+).
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        main.post { consumeTileStart() }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (!back()) @Suppress("DEPRECATION") super.onBackPressed()
@@ -494,6 +505,7 @@ class MainActivity : Activity() {
         updateModelSummary()
         if (inModel && inSettings) renderModels()
         render()
+        consumeTileStart()
         main.post(ticker)
         updater.resume()
     }
@@ -1841,6 +1853,18 @@ class MainActivity : Activity() {
     }
 
     // ---- start ---------------------------------------------------------------------------------------------
+
+    /**
+     * The 通知栏快捷按钮's request (CaptionTileService): start with the saved configuration as soon as this screen is up.
+     * The extra is removed before [start], so a return from the consent dialog or a rotation does not ask again; a
+     * running session is left alone (the tile stops that one itself), and [start] still shows what is missing when the
+     * app has no LLM API / model / permission yet.
+     */
+    private fun consumeTileStart() {
+        if (!intent.getBooleanExtra(CaptionTileService.EXTRA_START_CAPTIONS, false)) return
+        intent.removeExtra(CaptionTileService.EXTRA_START_CAPTIONS)
+        if (!CaptionService.running) start()
+    }
 
     private fun start() {
         startRefused = false
