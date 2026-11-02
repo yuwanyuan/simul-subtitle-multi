@@ -1,6 +1,7 @@
 package io.github.korenkrita.simulsub
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
@@ -52,5 +53,21 @@ class CaptionTileService : TileService() {
     companion object {
         /** Read once and removed by [MainActivity]: a request, never a state the screen keeps. */
         const val EXTRA_START_CAPTIONS = "io.github.korenkrita.simulsub.extra.START_CAPTIONS"
+
+        /**
+         * Ask SystemUI to run [onStartListening] again. The highlight follows [CaptionService.running], which changes
+         * while the shade is closed (the consent dialog's 允许, the stop) — without this the tile stays as it looked when
+         * the shade was last open, so it never lights up after a start. Called by [CaptionService] when the flag
+         * changes; one binder call, safe from a service.
+         *
+         * Guarded: the platform may throw SecurityException / IllegalArgumentException for a context whose user is not
+         * the current one on TIRAMISU+ (see TileService.requestListeningState), and a stale highlight must never take
+         * the session down. A failure only leaves the tile as it was until the next shade open, which re-reads it.
+         */
+        fun requestUpdate(context: Context) {
+            runCatching {
+                TileService.requestListeningState(context, android.content.ComponentName(context, CaptionTileService::class.java))
+            }
+        }
     }
 }

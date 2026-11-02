@@ -72,6 +72,8 @@ class CaptionService : Service(), SessionHost {
         }, main)
         projection = p
         running = true
+        // the tile's highlight follows this flag, but the shade that was tapped is already closed: ask for a re-read
+        CaptionTileService.requestUpdate(this)
         showOverlay()
         session.start()
         return START_NOT_STICKY
@@ -358,6 +360,8 @@ class CaptionService : Service(), SessionHost {
         session.stop()
         runCatching { unregisterReceiver(screenOn) }
         running = false; paused = false; ended = false
+        // likewise on the way out, so the tile does not stay lit after a stop made with the shade closed
+        CaptionTileService.requestUpdate(this)
         projection?.stop()
         projection = null
         prefListener?.let { prefs.unlisten(it) }; prefListener = null
